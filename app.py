@@ -1332,6 +1332,43 @@ LAYOUT_CONTROLS_JS = r"""
     document.querySelectorAll('.layoutSpacer').forEach(attachSpacerResize);
   }
 
+  window.initLayoutSpacers = initSpacers;
+
+  function initSpacerDragAndDrop(){
+    document.querySelectorAll('.layoutSpacer').forEach(spacer => {
+      spacer.setAttribute('draggable', 'true');
+    });
+    document.querySelectorAll('.reportBlocks').forEach(container => {
+      if(container.dataset.spacerDndReady === '1') return;
+      container.dataset.spacerDndReady = '1';
+      let dragged = null;
+
+      container.addEventListener('dragstart', (e) => {
+        const spacer = e.target.closest('.layoutSpacer');
+        if(!spacer) return;
+        dragged = spacer;
+        spacer.classList.add('draggingSpacer');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', 'layout-spacer');
+      });
+
+      container.addEventListener('dragend', () => {
+        if(dragged){ dragged.classList.remove('draggingSpacer'); }
+        dragged = null;
+      });
+
+      container.addEventListener('dragover', (e) => {
+        if(!dragged) return;
+        e.preventDefault();
+        const over = e.target.closest('.reportBlock');
+        if(!over || over === dragged || over.parentNode !== container) return;
+        const rect = over.getBoundingClientRect();
+        const before = e.clientY < (rect.top + rect.height / 2);
+        container.insertBefore(dragged, before ? over : over.nextSibling);
+      });
+    });
+  }
+
   function createSpacer(pxHeight){
     const div = document.createElement('div');
     div.className = 'layoutSpacer reportBlock noPrintSpacer';
@@ -1345,6 +1382,7 @@ LAYOUT_CONTROLS_JS = r"""
       <div class="layoutSpacerGrip" title="Glisser pour ajuster l'espace"></div>
     `;
     attachSpacerResize(div);
+    div.setAttribute('draggable', 'true');
     return div;
   }
 
@@ -1382,6 +1420,7 @@ LAYOUT_CONTROLS_JS = r"""
       if(!zone) return;
       const added = createSpacer(mmToPx(12));
       zone.parentNode.insertBefore(added, zone);
+      initSpacerDragAndDrop();
       if(window.repaginateReport){ window.repaginateReport(); }
     }else if(action === 'remove-spacer'){
       if(!spacer) return;
@@ -1401,8 +1440,11 @@ LAYOUT_CONTROLS_JS = r"""
     );
   });
 
+  window.initSpacerDragAndDrop = initSpacerDragAndDrop;
+
   window.addEventListener('load', () => {
     initSpacers();
+    initSpacerDragAndDrop();
   });
 })();
 """
@@ -1734,6 +1776,9 @@ PAGINATION_JS = r"""
       const actualHeight = node.getBoundingClientRect().height || height;
       used += actualHeight;
     });
+
+    if(window.initLayoutSpacers){ window.initLayoutSpacers(); }
+    if(window.initSpacerDragAndDrop){ window.initSpacerDragAndDrop(); }
   }
 
   window.repaginateReport = paginate;
@@ -2515,7 +2560,7 @@ body{{padding:14px 14px 14px 280px;}}
 .wrap{{display:flex;flex-direction:column;gap:12px;align-items:center;}}
 .page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:hidden;break-after:page;page-break-after:always;}}
 .page:last-child{{break-after:auto;page-break-after:auto;}}
-.pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);}}
+.pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);outline:1px dashed rgba(239,68,68,.35);outline-offset:-1px;}}
 .page--cover .pageContent{{padding-top:0;}}
 .muted{{color:var(--muted)}}
 .small{{font-size:12px}}
@@ -2606,6 +2651,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .layoutSpacerHeader .layoutSpacerValue{{margin-left:auto}}
 .layoutSpacerGrip{{height:12px;background:repeating-linear-gradient(90deg, rgba(127,29,29,.45), rgba(127,29,29,.45) 4px, transparent 4px, transparent 8px);cursor:ns-resize;opacity:.8}}
 .layoutSpacer.isResizing{{outline:2px solid #ef4444;outline-offset:1px}}
+.layoutSpacer.draggingSpacer{{opacity:.6}}
 .zoneBlock.pageBreakBefore{{page-break-before:always}}
 .u-page-break{{break-before:page;page-break-before:always;}}
 .u-avoid-break{{break-inside:avoid;page-break-inside:avoid;}}
@@ -2733,7 +2779,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 
 @media print{{
   .page{{height:297mm;min-height:297mm}}
-  .pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left)}}
+  .pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);outline:none}}
   .crTable th, .crTable td{{padding:5px 6px}}
   .zoneTitle{{padding:5px 7px}}
   .reportHeader{{margin-bottom:6px}}
@@ -2774,7 +2820,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel,.marginPanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
