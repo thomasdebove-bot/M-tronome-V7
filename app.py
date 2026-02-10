@@ -2588,7 +2588,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .compactRow .colComment .entryComment{{margin-top:6px}}
 
 @media print{{
-  .page{{height:auto;min-height:0}}
+  .page{{height:297mm;min-height:297mm}}
   .pageContent{{padding:8mm 7mm 30mm 7mm}}
   .crTable th, .crTable td{{padding:5px 6px}}
   .zoneTitle{{padding:5px 7px}}
