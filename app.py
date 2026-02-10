@@ -1596,8 +1596,13 @@ CONSTRAINTS_TOGGLES_JS = r"""
     {id:'toggleReserveFooter', cls:'constraint-no-footer-reserve', inverse:true},
     {id:'toggleReserveHeader', cls:'constraint-no-header-reserve', inverse:true},
     {id:'toggleReservePresence', cls:'constraint-no-presence-reserve', inverse:true},
+    {id:'toggleShowPresenceBlock', cls:'constraint-hide-presence-block', inverse:true},
+    {id:'toggleMergeZones', cls:'constraint-no-merge-zones', inverse:true},
+    {id:'toggleSplitZoneRows', cls:'constraint-no-zone-split', inverse:true},
     {id:'toggleAvoidSessionSplit', cls:'constraint-allow-session-split', inverse:false},
     {id:'toggleAvoidZoneTitleBreak', cls:'constraint-allow-zone-title-break', inverse:false},
+    {id:'toggleRespectManualPageBreaks', cls:'constraint-ignore-manual-breaks', inverse:true},
+    {id:'toggleRespectAvoidBreaks', cls:'constraint-ignore-avoid-breaks', inverse:true},
     {id:'toggleStrictA4Screen', cls:'constraint-free-page-height', inverse:true},
     {id:'toggleShowGuides', cls:'constraint-hide-guides', inverse:true},
     {id:'toggleShowSpacers', cls:'constraint-hide-spacers', inverse:true},
@@ -1746,7 +1751,8 @@ PAGINATION_JS = r"""
 
   function createPageFromTemplate(container, template, presenceSource, includePresence){
     const clone = template.content.firstElementChild.cloneNode(true);
-    if(includePresence && presenceSource){
+    const showPresenceBlock = !document.body.classList.contains('constraint-hide-presence-block');
+    if(includePresence && presenceSource && showPresenceBlock){
       const reportTables = clone.querySelector('.reportTables');
       const blocks = clone.querySelector('.reportBlocks');
       if(reportTables && blocks){
@@ -1764,12 +1770,13 @@ PAGINATION_JS = r"""
     if(!container || !template || !existingPages.length) return;
 
     const presenceSource = existingPages[0].querySelector('.presenceWrap');
-    mergeZoneBlocks(container);
+    const allowMergeZones = !document.body.classList.contains('constraint-no-merge-zones');
+    if(allowMergeZones){ mergeZoneBlocks(container); }
 
     const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => ({
       node: block,
       height: block.getBoundingClientRect().height || block.offsetHeight || 0,
-      splitData: block.classList.contains('zoneBlock') ? getZoneSplitData(block) : null,
+      splitData: (block.classList.contains('zoneBlock') && !document.body.classList.contains('constraint-no-zone-split')) ? getZoneSplitData(block) : null,
     }));
 
     existingPages.forEach(page => page.remove());
@@ -2271,8 +2278,13 @@ def render_cr(
         <label><input id="toggleReserveFooter" type="checkbox" /> Réserver footer</label>
         <label><input id="toggleReserveHeader" type="checkbox" /> Réserver header</label>
         <label><input id="toggleReservePresence" type="checkbox" /> Réserver présence page 2</label>
+        <label><input id="toggleShowPresenceBlock" type="checkbox" checked /> Afficher présence page 2</label>
+        <label><input id="toggleMergeZones" type="checkbox" checked /> Fusionner zones identiques</label>
+        <label><input id="toggleSplitZoneRows" type="checkbox" checked /> Découper zones par lignes</label>
         <label><input id="toggleAvoidSessionSplit" type="checkbox" /> Éviter coupure sous-session</label>
         <label><input id="toggleAvoidZoneTitleBreak" type="checkbox" /> Éviter coupure titre zone</label>
+        <label><input id="toggleRespectManualPageBreaks" type="checkbox" checked /> Respecter sauts manuels</label>
+        <label><input id="toggleRespectAvoidBreaks" type="checkbox" checked /> Respecter anti-coupures</label>
         <label><input id="toggleStrictA4Screen" type="checkbox" checked /> Hauteur A4 stricte (écran)</label>
         <label><input id="toggleShowGuides" type="checkbox" /> Afficher guides rouges</label>
         <label><input id="toggleShowSpacers" type="checkbox" /> Afficher espaces rouges</label>
@@ -2708,6 +2720,11 @@ body.constraint-hide-guides .pageContent{{outline:none!important}}
 body.constraint-free-page-height .page{{height:auto;min-height:0}}
 body.constraint-allow-zone-title-break .zoneTitle{{break-after:auto;page-break-after:auto}}
 body.constraint-allow-session-split .sessionSubRow{{break-inside:auto;page-break-inside:auto}}
+body.constraint-ignore-manual-breaks .zoneBlock.pageBreakBefore,
+body.constraint-ignore-manual-breaks .u-page-break{{break-before:auto!important;page-break-before:auto!important}}
+body.constraint-ignore-avoid-breaks .u-avoid-break,
+body.constraint-ignore-avoid-breaks .sessionSubRow,
+body.constraint-ignore-avoid-breaks .zoneTitle{{break-inside:auto!important;page-break-inside:auto!important;break-after:auto!important;page-break-after:auto!important}}
 .zoneBlock.pageBreakBefore{{page-break-before:always}}
 .u-page-break{{break-before:page;page-break-before:always;}}
 .u-avoid-break{{break-inside:avoid;page-break-inside:avoid;}}
