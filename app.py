@@ -1575,7 +1575,7 @@ PAGINATION_JS = r"""
     return Number.isNaN(n) ? 0 : n;
   }
 
-  function calcAvailable(page, includePresence){
+  function calcAvailable(page){
     const pageContent = page.querySelector('.pageContent');
     const footer = page.querySelector('.docFooter');
     const header = page.querySelector('.reportHeader');
@@ -1586,13 +1586,8 @@ PAGINATION_JS = r"""
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
     if(footer){ available -= footer.getBoundingClientRect().height; }
     if(header){ available -= header.getBoundingClientRect().height; }
-    if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
+    if(presence){ available -= presence.getBoundingClientRect().height; }
     return available;
-  }
-
-  function clearExtraPages(container){
-    const pages = Array.from(container.querySelectorAll('.page--report'));
-    pages.slice(1).forEach(page => page.remove());
   }
 
   function mergeZoneBlocks(container){
@@ -1668,49 +1663,58 @@ PAGINATION_JS = r"""
     return {chunk, nextIndex: endIndex, height};
   }
 
+  function createPageFromTemplate(container, template, presenceSource, includePresence){
+    const clone = template.content.firstElementChild.cloneNode(true);
+    if(includePresence && presenceSource){
+      const reportTables = clone.querySelector('.reportTables');
+      const blocks = clone.querySelector('.reportBlocks');
+      if(reportTables && blocks){
+        reportTables.insertBefore(presenceSource.cloneNode(true), blocks);
+      }
+    }
+    container.appendChild(clone);
+    return clone;
+  }
+
   function paginate(){
     const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    if(!container || !firstPage) return;
-    const blocksContainer = firstPage.querySelector('.reportBlocks');
-    if(!blocksContainer) return;
+    const template = document.getElementById('report-page-template');
+    const existingPages = Array.from(container?.querySelectorAll('.page--report') || []);
+    if(!container || !template || !existingPages.length) return;
+
+    const presenceSource = existingPages[0].querySelector('.presenceWrap');
     mergeZoneBlocks(container);
+
     const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => ({
       node: block,
       height: block.getBoundingClientRect().height || block.offsetHeight || 0,
       splitData: block.classList.contains('zoneBlock') ? getZoneSplitData(block) : null,
     }));
 
-    blocks.forEach(({node}) => node.remove());
-    clearExtraPages(container);
+    existingPages.forEach(page => page.remove());
 
-    let currentPage = firstPage;
-    let currentBlocks = blocksContainer;
-    let available = calcAvailable(currentPage, true);
+    let currentPage = createPageFromTemplate(container, template, presenceSource, true);
+    let currentBlocks = currentPage.querySelector('.reportBlocks');
+    let available = calcAvailable(currentPage);
     let used = 0;
-    const template = document.getElementById('report-page-template');
 
     blocks.forEach(({node, height, splitData}) => {
       if(splitData && splitData.rows.length){
         let rowIndex = 0;
         while(rowIndex < splitData.rows.length){
           const remaining = available - used;
-          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && used > 0){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
+          if(remaining <= splitData.titleHeight + splitData.tableOverhead && used > 0){
+            currentPage = createPageFromTemplate(container, template, null, false);
+            currentBlocks = currentPage.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage);
             used = 0;
           }
           const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
           const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
-          if(used > 0 && used + chunkHeight > available && template){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
+          if(used > 0 && used + chunkHeight > available){
+            currentPage = createPageFromTemplate(container, template, null, false);
+            currentBlocks = currentPage.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage);
             used = 0;
           }
           currentBlocks.appendChild(chunk);
@@ -1720,12 +1724,10 @@ PAGINATION_JS = r"""
         }
         return;
       }
-      if(used > 0 && used + height > available && template){
-        const clone = template.content.firstElementChild.cloneNode(true);
-        container.appendChild(clone);
-        currentPage = clone;
-        currentBlocks = clone.querySelector('.reportBlocks');
-        available = calcAvailable(currentPage, false);
+      if(used > 0 && used + height > available){
+        currentPage = createPageFromTemplate(container, template, null, false);
+        currentBlocks = currentPage.querySelector('.reportBlocks');
+        available = calcAvailable(currentPage);
         used = 0;
       }
       currentBlocks.appendChild(node);
@@ -2511,7 +2513,7 @@ def render_cr(
 html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 body{{padding:14px 14px 14px 280px;}}
 .wrap{{display:flex;flex-direction:column;gap:12px;align-items:center;}}
-.page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:visible;break-after:page;page-break-after:always;}}
+.page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:hidden;break-after:page;page-break-after:always;}}
 .page:last-child{{break-after:auto;page-break-after:auto;}}
 .pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);}}
 .page--cover .pageContent{{padding-top:0;}}
