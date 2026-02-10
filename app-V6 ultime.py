@@ -1451,197 +1451,9 @@ PRINT_OPTIMIZE_JS = r"""
 
 PAGINATION_JS = r"""
 (function(){
-  function px(value){
-    const n = parseFloat(value || "0");
-    return Number.isNaN(n) ? 0 : n;
-  }
-
-  function mmToPx(mm){
-    const probe = document.createElement('div');
-    probe.style.position = 'absolute';
-    probe.style.left = '-9999px';
-    probe.style.top = '-9999px';
-    probe.style.width = `${mm}mm`;
-    document.body.appendChild(probe);
-    const pxVal = probe.getBoundingClientRect().width;
-    probe.remove();
-    return pxVal;
-  }
-
-  function calcAvailable(page, includePresence){
-    const pageContent = page.querySelector('.pageContent');
-    const presence = page.querySelector('.presenceWrap');
-    const pageRect = page.getBoundingClientRect();
-    if(!pageContent) return pageRect.height;
-
-    // Usable report content zone target:
-    // 257mm - 12mm (header) - 35mm (footer) = ~210mm
-    const targetContentPx = mmToPx(210);
-    const styles = window.getComputedStyle(pageContent);
-    let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(targetContentPx > 0){
-      available = Math.min(available, targetContentPx);
-    }
-    if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
-    return available;
-  }
-
-  function clearExtraPages(container){
-    const pages = Array.from(container.querySelectorAll('.page--report'));
-    pages.slice(1).forEach(page => page.remove());
-  }
-
-  function mergeZoneBlocks(container){
-    const zones = Array.from(container.querySelectorAll('.zoneBlock'));
-    const grouped = new Map();
-    zones.forEach(zone => {
-      const key = zone.getAttribute('data-zone-id') || '';
-      if(!grouped.has(key)){ grouped.set(key, []); }
-      grouped.get(key).push(zone);
-    });
-    grouped.forEach(group => {
-      if(group.length < 2){ return; }
-      const target = group[0];
-      const targetBody = target.querySelector('tbody');
-      if(!targetBody){ return; }
-      group.slice(1).forEach(zone => {
-        const body = zone.querySelector('tbody');
-        if(body){
-          Array.from(body.children).forEach(row => targetBody.appendChild(row));
-        }
-        zone.remove();
-      });
-    });
-  }
-
-  function getZoneSplitData(zone){
-    const title = zone.querySelector('.zoneTitle');
-    const table = zone.querySelector('table.crTable');
-    const tbody = table?.querySelector('tbody');
-    const rows = tbody ? Array.from(tbody.children) : [];
-    const rowHeights = rows.map(row => row.getBoundingClientRect().height || row.offsetHeight || 0);
-    const tableRect = table?.getBoundingClientRect().height || table?.offsetHeight || 0;
-    const rowsSum = rowHeights.reduce((sum, h) => sum + h, 0);
-    const tableOverhead = Math.max(0, tableRect - rowsSum);
-    const titleHeight = title?.getBoundingClientRect().height || title?.offsetHeight || 0;
-    return {rows, rowHeights, tableOverhead, titleHeight};
-  }
-
-  function cloneZoneShell(zone){
-    const clone = zone.cloneNode(true);
-    const tbody = clone.querySelector('tbody');
-    if(tbody){ tbody.innerHTML = ''; }
-    return clone;
-  }
-
-  function buildZoneChunk(zone, data, startIndex, maxHeight){
-    const {rows, rowHeights, tableOverhead, titleHeight} = data;
-    const total = rows.length;
-    let height = titleHeight + tableOverhead;
-    let endIndex = startIndex;
-    while(endIndex < total){
-      const rowHeight = rowHeights[endIndex] || 0;
-      if(endIndex > startIndex && height + rowHeight > maxHeight){ break; }
-      height += rowHeight;
-      endIndex += 1;
-      if(endIndex === startIndex + 1 && height > maxHeight){ break; }
-    }
-    if(endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
-      endIndex -= 1;
-    }
-    if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
-      endIndex = Math.min(startIndex + 2, total);
-    }
-    height = titleHeight + tableOverhead;
-    for(let i=startIndex;i<endIndex;i++){
-      height += rowHeights[i] || 0;
-    }
-    const chunk = cloneZoneShell(zone);
-    const tbody = chunk.querySelector('tbody');
-    for(let i=startIndex;i<endIndex;i++){
-      tbody.appendChild(rows[i]);
-    }
-    return {chunk, nextIndex: endIndex, height};
-  }
-
-  function paginate(){
-    const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    if(!container || !firstPage) return;
-    const blocksContainer = firstPage.querySelector('.reportBlocks');
-    if(!blocksContainer) return;
-    mergeZoneBlocks(container);
-    const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => ({
-      node: block,
-      height: block.getBoundingClientRect().height || block.offsetHeight || 0,
-      splitData: block.classList.contains('zoneBlock') ? getZoneSplitData(block) : null,
-    }));
-
-    blocks.forEach(({node}) => node.remove());
-    clearExtraPages(container);
-
-    let currentPage = firstPage;
-    let currentBlocks = blocksContainer;
-    let available = calcAvailable(currentPage, true);
-    let used = 0;
-    const template = document.getElementById('report-page-template');
-
-    blocks.forEach(({node, height, splitData}) => {
-      if(splitData && splitData.rows.length){
-        let rowIndex = 0;
-        while(rowIndex < splitData.rows.length){
-          const remaining = available - used;
-          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && used > 0){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
-          const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
-          if(used > 0 && used + chunkHeight > available && template){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          currentBlocks.appendChild(chunk);
-          const actualHeight = chunk.getBoundingClientRect().height || chunkHeight;
-          used += actualHeight;
-          rowIndex = nextIndex;
-        }
-        return;
-      }
-      if(used > 0 && used + height > available && template){
-        const clone = template.content.firstElementChild.cloneNode(true);
-        container.appendChild(clone);
-        currentPage = clone;
-        currentBlocks = clone.querySelector('.reportBlocks');
-        available = calcAvailable(currentPage, false);
-        used = 0;
-      }
-      currentBlocks.appendChild(node);
-      const actualHeight = node.getBoundingClientRect().height || height;
-      used += actualHeight;
-    });
-  }
-
-  window.repaginateReport = paginate;
-  window.refreshPagination = function(){
-    if(!window.repaginateReport){ return; }
-    requestAnimationFrame(() => window.repaginateReport());
-  };
-  window.addEventListener('load', () => {
-    requestAnimationFrame(paginate);
-  });
-  window.addEventListener('resize', () => {
-    clearTimeout(window.__repaginateTimer);
-    window.__repaginateTimer = setTimeout(paginate, 200);
-  });
+  // Pagination manuelle désactivée: on laisse le navigateur gérer le flux print nativement.
+  window.repaginateReport = function(){};
+  window.refreshPagination = function(){};
 })();
 """
 
@@ -2402,7 +2214,7 @@ body{{padding:14px 14px 14px 280px;}}
 .small{{font-size:12px}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
-@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none}}}}
+@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none;height:auto;min-height:0;overflow:visible}}}}
 body.printOptimized .reportBlocks{{gap:0!important}}
 body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
@@ -2645,7 +2457,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:auto;min-height:0;margin:0;box-shadow:none;overflow:visible;break-after:auto;page-break-after:auto;}} .page--cover{{break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
