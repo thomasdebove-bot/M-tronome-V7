@@ -1292,17 +1292,58 @@ LAYOUT_CONTROLS_JS = r"""
 DRAGGABLE_IMAGES_JS = r"""
 (function(){
   function ensureThumbWrapper(imgSrc){
-    return `<span class="thumbAWrap" data-thumb draggable="true"><a class="thumbA" href="${imgSrc}" target="_blank" rel="noopener"><img class="thumb" src="${imgSrc}" alt="" /></a><button type="button" class="thumbRemove noPrint" title="Supprimer">×</button><span class="thumbHandle" title="Déplacer / redimensionner"></span></span>`;
+    return `<span class="thumbAWrap" data-thumb draggable="true"><a class="thumbA" href="${imgSrc}" target="_blank" rel="noopener"><img class="thumb" src="${imgSrc}" alt="" /></a><button type="button" class="thumbRemove noPrint" title="Supprimer">×</button><span class="thumbHandle" title="Redimensionner"></span></span>`;
+  }
+
+  function attachResizeBehavior(wrap){
+    if(!wrap || wrap.dataset.resizeReady === '1') return;
+    wrap.dataset.resizeReady = '1';
+    const handle = wrap.querySelector('.thumbHandle');
+    const img = wrap.querySelector('.thumb');
+    if(!handle || !img) return;
+
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startWidth = img.getBoundingClientRect().width || 160;
+      wrap.classList.add('resizing');
+
+      const onMove = (ev) => {
+        const nextWidth = Math.min(520, Math.max(70, startWidth + (ev.clientX - startX)));
+        img.style.width = `${nextWidth}px`;
+        img.style.height = 'auto';
+      };
+
+      const onUp = () => {
+        wrap.classList.remove('resizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
   }
 
   function initGallery(gallery){
-    if(!gallery || gallery.dataset.dragReady === '1') return;
+    if(!gallery) return;
+    gallery.querySelectorAll('.thumbAWrap').forEach(wrap => {
+      wrap.setAttribute('draggable', 'true');
+      attachResizeBehavior(wrap);
+    });
+    if(gallery.dataset.dragReady === '1') return;
     gallery.dataset.dragReady = '1';
+
     let dragEl = null;
 
     gallery.addEventListener('dragstart', (e) => {
+      if(e.target.closest('.thumbHandle')){
+        e.preventDefault();
+        return;
+      }
       const wrap = e.target.closest('.thumbAWrap');
-      if(!wrap) return;
+      if(!wrap || wrap.classList.contains('resizing')) return;
       dragEl = wrap;
       wrap.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
@@ -1366,6 +1407,8 @@ DRAGGABLE_IMAGES_JS = r"""
             const src = String(reader.result || '');
             if(!src) return;
             gallery.insertAdjacentHTML('beforeend', ensureThumbWrapper(src));
+            const inserted = gallery.lastElementChild;
+            if(inserted){ attachResizeBehavior(inserted); }
           };
           reader.readAsDataURL(file);
         });
@@ -1375,12 +1418,7 @@ DRAGGABLE_IMAGES_JS = r"""
   }
 
   window.enableDraggableThumbs = function(){
-    document.querySelectorAll('.thumbs').forEach(gallery => {
-      initGallery(gallery);
-      gallery.querySelectorAll('.thumbAWrap').forEach(wrap => {
-        wrap.setAttribute('draggable', 'true');
-      });
-    });
+    document.querySelectorAll('.thumbs').forEach(initGallery);
     setupImageButtons();
   };
 
@@ -2531,15 +2569,16 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .crTable tr.rowMeeting td.colType{{box-shadow:inset 4px 0 0 #2563eb;}}
 
 .thumbs{{margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}}
-.thumb{{height:90px;width:auto;max-width:160px;border:1px solid var(--border);border-radius:8px;display:block;object-fit:cover;background:#fff}}
+.thumb{{width:160px;height:auto;max-width:100%;border:1px solid var(--border);border-radius:8px;display:block;object-fit:cover;background:#fff}}
 .entryComment{{margin-top:8px;padding-left:12px;border-left:3px solid #e2e8f0}}
 .tagReminderGreen{{color:#16a34a;font-weight:900}}
 .thumbA{{display:inline-flex;cursor:grab}}
 .commentText{{font-weight:400;line-height:1.24;white-space:normal}}
 .tagReminder{{color:#b91c1c;font-weight:900}}
-.thumbAWrap{{position:relative;display:inline-flex;touch-action:none;resize:both;overflow:auto;max-width:100%}}
+.thumbAWrap{{position:relative;display:inline-flex;touch-action:none;max-width:100%;align-items:flex-start}}
 .thumbAWrap.dragging{{opacity:.7;z-index:5}}
-.thumbHandle{{position:absolute;right:4px;bottom:4px;width:14px;height:14px;border:2px solid rgba(15,23,42,.45);border-top:none;border-left:none;pointer-events:none}}
+.thumbAWrap.resizing{{outline:2px solid #60a5fa;outline-offset:1px}}
+.thumbHandle{{position:absolute;right:4px;bottom:4px;width:14px;height:14px;border:2px solid rgba(15,23,42,.45);border-top:none;border-left:none;cursor:nwse-resize;background:rgba(255,255,255,.7)}}
 .thumbRemove{{position:absolute;top:2px;right:2px;width:18px;height:18px;border:none;border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-weight:900;line-height:18px;padding:0;cursor:pointer}}
 .thumbRemove:hover{{background:#dc2626}}
 .colComment br + br{{display:none}}
