@@ -1255,7 +1255,99 @@ document.addEventListener('click', (e) => {
 
 LAYOUT_CONTROLS_JS = r"""
 (function(){
+  const MIN_SPACER = 6;
+
   function closestZone(el){ return el.closest('.zoneBlock'); }
+  function closestSpacer(el){ return el.closest('.layoutSpacer'); }
+
+  function mmToPx(mm){
+    const n = parseFloat(mm || '0');
+    if(Number.isNaN(n)) return 0;
+    return n * 3.7795275591;
+  }
+
+  function pxToMm(px){
+    return px / 3.7795275591;
+  }
+
+  function setPageMargins(top, right, bottom, left){
+    const root = document.documentElement;
+    root.style.setProperty('--page-pad-top', `${Math.max(0, top)}mm`);
+    root.style.setProperty('--page-pad-right', `${Math.max(0, right)}mm`);
+    root.style.setProperty('--page-pad-bottom', `${Math.max(0, bottom)}mm`);
+    root.style.setProperty('--page-pad-left', `${Math.max(0, left)}mm`);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  function readMarginInput(id, fallback){
+    const el = document.getElementById(id);
+    const value = parseFloat(el?.value || '');
+    if(Number.isNaN(value)) return fallback;
+    return value;
+  }
+
+  function updateSpacerLabel(spacer){
+    const valueEl = spacer?.querySelector('[data-spacer-value]');
+    if(!valueEl || !spacer) return;
+    const h = spacer.getBoundingClientRect().height || 0;
+    valueEl.textContent = `${pxToMm(h).toFixed(1)} mm`;
+  }
+
+  function setSpacerHeight(spacer, px){
+    if(!spacer) return;
+    const next = Math.max(MIN_SPACER, px);
+    spacer.style.height = `${next}px`;
+    updateSpacerLabel(spacer);
+  }
+
+  function attachSpacerResize(spacer){
+    if(!spacer || spacer.dataset.ready === '1') return;
+    spacer.dataset.ready = '1';
+    updateSpacerLabel(spacer);
+    const grip = spacer.querySelector('.layoutSpacerGrip');
+    if(!grip) return;
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = spacer.getBoundingClientRect().height || MIN_SPACER;
+      spacer.classList.add('isResizing');
+
+      const onMove = (ev) => {
+        setSpacerHeight(spacer, startH + (ev.clientY - startY));
+        if(window.repaginateReport){ window.repaginateReport(); }
+      };
+      const onUp = () => {
+        spacer.classList.remove('isResizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        if(window.repaginateReport){ window.repaginateReport(); }
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+  }
+
+  function initSpacers(){
+    document.querySelectorAll('.layoutSpacer').forEach(attachSpacerResize);
+  }
+
+  function createSpacer(pxHeight){
+    const div = document.createElement('div');
+    div.className = 'layoutSpacer reportBlock noPrintSpacer';
+    div.style.height = `${Math.max(MIN_SPACER, pxHeight || mmToPx(10))}px`;
+    div.innerHTML = `
+      <div class="layoutSpacerHeader noPrint">
+        <span>Espace de mise en page</span>
+        <span class="layoutSpacerValue" data-spacer-value>0 mm</span>
+        <button class="zoneBtn" type="button" data-action="remove-spacer">Supprimer</button>
+      </div>
+      <div class="layoutSpacerGrip" title="Glisser pour ajuster l'espace"></div>
+    `;
+    attachSpacerResize(div);
+    return div;
+  }
+
   function move(zone, dir){
     if(!zone) return;
     if(dir === 'up'){
@@ -1276,14 +1368,41 @@ LAYOUT_CONTROLS_JS = r"""
     if(!btn) return;
     const action = btn.dataset.action || '';
     const zone = closestZone(btn);
-    if(!zone) return;
+    const spacer = closestSpacer(btn);
     if(action === 'highlight'){
+      if(!zone) return;
       zone.classList.toggle('highlight');
     }else if(action === 'move-up'){
+      if(!zone) return;
       move(zone, 'up');
     }else if(action === 'move-down'){
+      if(!zone) return;
       move(zone, 'down');
+    }else if(action === 'add-space-before'){
+      if(!zone) return;
+      const added = createSpacer(mmToPx(12));
+      zone.parentNode.insertBefore(added, zone);
+      if(window.repaginateReport){ window.repaginateReport(); }
+    }else if(action === 'remove-spacer'){
+      if(!spacer) return;
+      spacer.remove();
+      if(window.repaginateReport){ window.repaginateReport(); }
     }
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('#btnApplyMargins');
+    if(!btn) return;
+    setPageMargins(
+      readMarginInput('marginTopMm', 10),
+      readMarginInput('marginRightMm', 8),
+      readMarginInput('marginBottomMm', 34),
+      readMarginInput('marginLeftMm', 8)
+    );
+  });
+
+  window.addEventListener('load', () => {
+    initSpacers();
   });
 })();
 """
@@ -2052,6 +2171,14 @@ def render_cr(
         <button class="btn secondary editCompact" type="button" onclick="restoreAllHiddenRows()">Réafficher tout</button>
         <a class="btn secondary" href="/">Changer de réunion</a>
       </div>
+      <div class="marginPanel noPrint">
+        <div class="marginPanelTitle">Marges A4 (aperçu)</div>
+        <label>Haut (mm)<input id="marginTopMm" type="number" step="0.5" value="10" /></label>
+        <label>Droite (mm)<input id="marginRightMm" type="number" step="0.5" value="8" /></label>
+        <label>Bas (mm)<input id="marginBottomMm" type="number" step="0.5" value="34" /></label>
+        <label>Gauche (mm)<input id="marginLeftMm" type="number" step="0.5" value="8" /></label>
+        <button class="btn secondary" type="button" id="btnApplyMargins">Appliquer marges</button>
+      </div>
       <div class="rangePanel noPrint" id="rangePanel" style="display:{'flex' if range_active else 'none'}">
         <div class="rangeFields">
           <div class="rangeField">
@@ -2216,6 +2343,7 @@ def render_cr(
           <div class="zoneTitle">
             <span>{zt}</span>
             <div class="zoneTools noPrint">
+              <button class="zoneBtn" type="button" data-action="add-space-before">+ Espace</button>
               <button class="zoneBtn" type="button" data-action="move-up">↑</button>
               <button class="zoneBtn" type="button" data-action="move-down">↓</button>
               <button class="zoneBtn" type="button" data-action="highlight">Surligner</button>
@@ -2374,6 +2502,10 @@ def render_cr(
   --a4-padding-x:6mm;
   --kpi-cols:4;
   --top-scale:1;
+  --page-pad-top:10mm;
+  --page-pad-right:8mm;
+  --page-pad-bottom:34mm;
+  --page-pad-left:8mm;
 }}
 *{{box-sizing:border-box}}
 html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
@@ -2381,7 +2513,7 @@ body{{padding:14px 14px 14px 280px;}}
 .wrap{{display:flex;flex-direction:column;gap:12px;align-items:center;}}
 .page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:visible;break-after:page;page-break-after:always;}}
 .page:last-child{{break-after:auto;page-break-after:auto;}}
-.pageContent{{padding:10mm 8mm 34mm 8mm;}}
+.pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);}}
 .page--cover .pageContent{{padding-top:0;}}
 .muted{{color:var(--muted)}}
 .small{{font-size:12px}}
@@ -2467,6 +2599,11 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .zoneTools{{display:flex;align-items:center;gap:6px;margin-left:auto}}
 .zoneBtn{{border:1px solid #ffffff;background:#fff;border-radius:8px;padding:4px 8px;font-weight:800;cursor:pointer}}
 .zoneBlock.highlight{{box-shadow:0 0 0 2px #f59e0b inset; background:linear-gradient(180deg,#fff7ed,#fff)}}
+.layoutSpacer{{position:relative;border:1px dashed rgba(220,38,38,.65);background:rgba(248,113,113,.28);border-radius:8px;margin:0;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between}}
+.layoutSpacerHeader{{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:11px;font-weight:800;color:#7f1d1d;background:rgba(254,202,202,.66)}}
+.layoutSpacerHeader .layoutSpacerValue{{margin-left:auto}}
+.layoutSpacerGrip{{height:12px;background:repeating-linear-gradient(90deg, rgba(127,29,29,.45), rgba(127,29,29,.45) 4px, transparent 4px, transparent 8px);cursor:ns-resize;opacity:.8}}
+.layoutSpacer.isResizing{{outline:2px solid #ef4444;outline-offset:1px}}
 .zoneBlock.pageBreakBefore{{page-break-before:always}}
 .u-page-break{{break-before:page;page-break-before:always;}}
 .u-avoid-break{{break-inside:avoid;page-break-inside:avoid;}}
@@ -2506,6 +2643,10 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--accent);color:#fff;font-weight:950;cursor:pointer;text-decoration:none}}
 .btn.secondary{{background:#fff;color:var(--text);font-weight:900}}
 .rangePanel{{position:fixed;top:14px;left:14px;z-index:10001;width:248px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.marginPanel{{position:fixed;top:14px;right:14px;z-index:10001;width:220px;border:1px solid var(--border);border-radius:14px;padding:10px;background:#fff;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(2,6,23,.12)}}
+.marginPanelTitle{{font-weight:900}}
+.marginPanel label{{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;font-weight:700}}
+.marginPanel input{{width:84px;padding:5px 6px;border:1px solid var(--border);border-radius:8px}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
@@ -2564,6 +2705,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
 
 @media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} .rowImageTools{{display:none!important}} .thumbRemove{{display:none!important}} }}
+@media print{{ .noPrintSpacer{{display:none!important}} }}
 @media print{{ .sessionSubRow{{break-inside:avoid;page-break-inside:avoid}} .zoneTitle{{break-after:avoid-page;page-break-after:avoid}} }}
 
 
@@ -2589,7 +2731,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 
 @media print{{
   .page{{height:297mm;min-height:297mm}}
-  .pageContent{{padding:8mm 7mm 30mm 7mm}}
+  .pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left)}}
   .crTable th, .crTable td{{padding:5px 6px}}
   .zoneTitle{{padding:5px 7px}}
   .reportHeader{{margin-bottom:6px}}
