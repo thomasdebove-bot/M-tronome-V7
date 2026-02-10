@@ -1284,7 +1284,12 @@ LAYOUT_CONTROLS_JS = r"""
 
 PAGINATION_JS = r"""
 (function(){
+  function isPrintMode(){
+    return window.matchMedia && window.matchMedia('print').matches;
+  }
+
   function updatePageNumbers(){
+    if(isPrintMode()) return;
     const pages = Array.from(document.querySelectorAll('.page'));
     const total = pages.length;
     pages.forEach((page, idx) => {
@@ -1521,6 +1526,7 @@ PAGINATION_JS = r"""
   }
 
   function paginate(){
+    if(isPrintMode()) return;
     const container = document.querySelector('.reportPages');
     const firstPage = container?.querySelector('.page--report');
     if(!container || !firstPage) return;
@@ -1611,7 +1617,7 @@ PAGINATION_JS = r"""
     window.__repaginateTimer = setTimeout(paginate, 200);
   });
   window.addEventListener('beforeprint', () => {
-    window.refreshPagination && window.refreshPagination();
+    return;
   });
   window.addEventListener('afterprint', () => {
     window.repaginateReport && window.repaginateReport();
@@ -2574,7 +2580,6 @@ body{{padding:14px 14px 14px 280px;}}
 .kpiCount{{font-weight:1000}}
 
 /* PRINT TABLE */
-@page {{ size: A4 portrait; margin: 0; }}
 
 .zoneBlock{{margin:0}}
 .zoneBlock + .zoneBlock{{margin-top:0}}
@@ -2665,9 +2670,43 @@ body{{padding:14px 14px 14px 280px;}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
 @media print{{
-  body{{padding:0;background:#fff}}
+  @page{{size:A4;margin:10mm}}
+  body{{padding:0!important;background:#fff}}
   .actions,.rangePanel{{display:none!important}}
-  .page{{margin:0;box-shadow:none;overflow:visible}}
+  .page{{
+    width:190mm!important;
+    height:277mm!important;
+    min-height:277mm!important;
+    margin:0 auto!important;
+    box-shadow:none!important;
+    overflow:hidden!important;
+  }}
+  .page--cover .docFooter{{position:absolute!important;}}
+  .page--report .reportHeader{{
+    position:fixed!important;
+    top:10mm;
+    left:10mm;
+    right:10mm;
+    margin:0!important;
+    background:#fff;
+    z-index:30;
+  }}
+  .page--report .pageContent{{padding:12mm 8mm 34mm 8mm!important;}}
+  .page--report .docFooter{{
+    position:fixed!important;
+    left:10mm;
+    right:10mm;
+    bottom:10mm;
+    margin:0!important;
+    z-index:30;
+  }}
+  .page--report .footRight{{font-size:0!important;color:transparent!important}}
+  .page--report .footRight::before{{
+    content:counter(page) " / " counter(pages);
+    font-size:10px;
+    color:#ffffff;
+    font-weight:700;
+  }}
 }}
 
 {EDITOR_MEMO_MODAL_CSS}
