@@ -1456,17 +1456,32 @@ PAGINATION_JS = r"""
     return Number.isNaN(n) ? 0 : n;
   }
 
+  function mmToPx(mm){
+    const probe = document.createElement('div');
+    probe.style.position = 'absolute';
+    probe.style.left = '-9999px';
+    probe.style.top = '-9999px';
+    probe.style.width = `${mm}mm`;
+    document.body.appendChild(probe);
+    const pxVal = probe.getBoundingClientRect().width;
+    probe.remove();
+    return pxVal;
+  }
+
   function calcAvailable(page, includePresence){
     const pageContent = page.querySelector('.pageContent');
-    const footer = page.querySelector('.docFooter');
-    const header = page.querySelector('.reportHeader');
     const presence = page.querySelector('.presenceWrap');
     const pageRect = page.getBoundingClientRect();
     if(!pageContent) return pageRect.height;
+
+    // Usable report content zone target:
+    // 257mm - 12mm (header) - 35mm (footer) = ~210mm
+    const targetContentPx = mmToPx(210);
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
-    if(header){ available -= header.getBoundingClientRect().height; }
+    if(targetContentPx > 0){
+      available = Math.min(available, targetContentPx);
+    }
     if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
     return available;
   }
@@ -2392,7 +2407,7 @@ body.printOptimized .reportBlocks{{gap:0!important}}
 body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
 body.printOptimized .reportHeader{{margin-bottom:4px!important}}
-body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
+body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 @media screen{{body{{background:#e5e7eb;}} .page{{box-shadow:0 14px 30px rgba(15,23,42,.16)}}}}
 .topPage{{transform:scale(var(--top-scale));transform-origin:top left}}
 @media print{{.topPage{{margin:0;}}}}
@@ -2593,7 +2608,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
   .crTable th, .crTable td{{padding:5px 6px}}
   .zoneTitle{{padding:5px 7px}}
   .reportHeader{{margin-bottom:6px}}
-  .thumb{{height:72px;max-width:130px}}
+  .thumb{{height:auto;max-width:100%}}
   .thumbHandle{{display:none}}
   .thumbRemove{{display:none}}
   .btnAddImage{{display:none}}
