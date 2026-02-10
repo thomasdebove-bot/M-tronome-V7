@@ -2215,6 +2215,7 @@ body{{padding:14px 14px 14px 280px;}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
 @media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none;height:auto;min-height:0;overflow:visible}}}}
+@media print{{ .docFooter,.coverHero,.banner,.imgThumb,.thumbAWrap{{overflow:visible!important}} }}
 body.printOptimized .reportBlocks{{gap:0!important}}
 body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
@@ -2364,7 +2365,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .crTable thead{{display:table-header-group}}
 .crTable tfoot{{display:table-footer-group}}
 .crTable th, .crTable td{{border:1px solid var(--border);padding:6px 7px;vertical-align:top;page-break-inside:auto;break-inside:auto;}}
-.crTable tr{{page-break-inside:auto;break-inside:auto;}}
+.crTable tr{{page-break-inside:avoid;break-inside:avoid;}}
 .annexTable tr{{page-break-inside:auto;break-inside:auto;}}
 .crTable th{{background:#1f4e4f;color:#fff;text-align:center;font-weight:900;font-size:11px;line-height:1.2;white-space:nowrap}}
 .crTable td{{font-size:11px;line-height:1.24;word-break:normal;overflow-wrap:break-word;hyphens:none}}
@@ -2391,7 +2392,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
 
 @media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} .rowImageTools{{display:none!important}} .thumbRemove{{display:none!important}} }}
-@media print{{ .sessionSubRow{{break-inside:avoid;page-break-inside:avoid}} .zoneTitle{{break-after:avoid-page;page-break-after:avoid}} }}
+@media print{{ .zoneTitle{{break-after:avoid-page;page-break-after:avoid;break-inside:auto;page-break-inside:auto}} }}
 
 
 .crTable tr.rowMeeting td{{background:#eef8ff;}}
@@ -2457,7 +2458,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:auto;min-height:0;margin:0;box-shadow:none;overflow:visible;break-after:auto;page-break-after:auto;}} .page--cover{{break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:auto;min-height:0;margin:0;box-shadow:none;overflow:visible;break-after:auto;page-break-after:auto;}} .reportBlock,.zoneBlock,.section{{break-inside:auto;page-break-inside:auto;}} .page--cover{{break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
