@@ -1255,7 +1255,137 @@ document.addEventListener('click', (e) => {
 
 LAYOUT_CONTROLS_JS = r"""
 (function(){
+  const MIN_SPACER = 6;
+
   function closestZone(el){ return el.closest('.zoneBlock'); }
+  function closestSpacer(el){ return el.closest('.layoutSpacer'); }
+
+  function mmToPx(mm){
+    const n = parseFloat(mm || '0');
+    if(Number.isNaN(n)) return 0;
+    return n * 3.7795275591;
+  }
+
+  function pxToMm(px){
+    return px / 3.7795275591;
+  }
+
+  function setPageMargins(top, right, bottom, left){
+    const root = document.documentElement;
+    root.style.setProperty('--page-pad-top', `${top}mm`);
+    root.style.setProperty('--page-pad-right', `${right}mm`);
+    root.style.setProperty('--page-pad-bottom', `${bottom}mm`);
+    root.style.setProperty('--page-pad-left', `${left}mm`);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  function readMarginInput(id, fallback){
+    const el = document.getElementById(id);
+    const value = parseFloat(el?.value || '');
+    if(Number.isNaN(value)) return fallback;
+    return value;
+  }
+
+  function updateSpacerLabel(spacer){
+    const valueEl = spacer?.querySelector('[data-spacer-value]');
+    if(!valueEl || !spacer) return;
+    const h = spacer.getBoundingClientRect().height || 0;
+    valueEl.textContent = `${pxToMm(h).toFixed(1)} mm`;
+  }
+
+  function setSpacerHeight(spacer, px){
+    if(!spacer) return;
+    const next = Math.max(MIN_SPACER, px);
+    spacer.style.height = `${next}px`;
+    updateSpacerLabel(spacer);
+  }
+
+  function attachSpacerResize(spacer){
+    if(!spacer || spacer.dataset.ready === '1') return;
+    spacer.dataset.ready = '1';
+    updateSpacerLabel(spacer);
+    const grip = spacer.querySelector('.layoutSpacerGrip');
+    if(!grip) return;
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = spacer.getBoundingClientRect().height || MIN_SPACER;
+      spacer.classList.add('isResizing');
+
+      const onMove = (ev) => {
+        setSpacerHeight(spacer, startH + (ev.clientY - startY));
+        if(window.repaginateReport){ window.repaginateReport(); }
+      };
+      const onUp = () => {
+        spacer.classList.remove('isResizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        if(window.repaginateReport){ window.repaginateReport(); }
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+  }
+
+  function initSpacers(){
+    document.querySelectorAll('.layoutSpacer').forEach(attachSpacerResize);
+  }
+
+  window.initLayoutSpacers = initSpacers;
+
+  function initSpacerDragAndDrop(){
+    document.querySelectorAll('.layoutSpacer').forEach(spacer => {
+      spacer.setAttribute('draggable', 'true');
+    });
+    document.querySelectorAll('.reportBlocks').forEach(container => {
+      if(container.dataset.spacerDndReady === '1') return;
+      container.dataset.spacerDndReady = '1';
+      let dragged = null;
+
+      container.addEventListener('dragstart', (e) => {
+        const spacer = e.target.closest('.layoutSpacer');
+        if(!spacer) return;
+        dragged = spacer;
+        spacer.classList.add('draggingSpacer');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', 'layout-spacer');
+      });
+
+      container.addEventListener('dragend', () => {
+        if(dragged){ dragged.classList.remove('draggingSpacer'); }
+        dragged = null;
+      });
+
+      container.addEventListener('dragover', (e) => {
+        if(!dragged) return;
+        e.preventDefault();
+        const over = e.target.closest('.reportBlock');
+        if(!over || over === dragged || over.parentNode !== container) return;
+        const rect = over.getBoundingClientRect();
+        const before = e.clientY < (rect.top + rect.height / 2);
+        container.insertBefore(dragged, before ? over : over.nextSibling);
+      });
+    });
+  }
+
+  function createSpacer(pxHeight){
+    const div = document.createElement('div');
+    div.className = 'layoutSpacer reportBlock noPrintSpacer';
+    div.style.height = `${Math.max(MIN_SPACER, pxHeight || mmToPx(10))}px`;
+    div.innerHTML = `
+      <div class="layoutSpacerHeader noPrint">
+        <span>Espace de mise en page</span>
+        <span class="layoutSpacerValue" data-spacer-value>0 mm</span>
+        <button class="zoneBtn" type="button" data-action="remove-spacer">Supprimer</button>
+      </div>
+      <div class="layoutSpacerGrip" title="Glisser pour ajuster l'espace"></div>
+    `;
+    attachSpacerResize(div);
+    div.setAttribute('draggable', 'true');
+    return div;
+  }
+
   function move(zone, dir){
     if(!zone) return;
     if(dir === 'up'){
@@ -1276,14 +1406,45 @@ LAYOUT_CONTROLS_JS = r"""
     if(!btn) return;
     const action = btn.dataset.action || '';
     const zone = closestZone(btn);
-    if(!zone) return;
+    const spacer = closestSpacer(btn);
     if(action === 'highlight'){
+      if(!zone) return;
       zone.classList.toggle('highlight');
     }else if(action === 'move-up'){
+      if(!zone) return;
       move(zone, 'up');
     }else if(action === 'move-down'){
+      if(!zone) return;
       move(zone, 'down');
+    }else if(action === 'add-space-before'){
+      if(!zone) return;
+      const added = createSpacer(mmToPx(12));
+      zone.parentNode.insertBefore(added, zone);
+      initSpacerDragAndDrop();
+      if(window.repaginateReport){ window.repaginateReport(); }
+    }else if(action === 'remove-spacer'){
+      if(!spacer) return;
+      spacer.remove();
+      if(window.repaginateReport){ window.repaginateReport(); }
     }
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('#btnApplyMargins');
+    if(!btn) return;
+    setPageMargins(
+      readMarginInput('marginTopMm', 5),
+      readMarginInput('marginRightMm', 8),
+      readMarginInput('marginBottomMm', -5),
+      readMarginInput('marginLeftMm', 8)
+    );
+  });
+
+  window.initSpacerDragAndDrop = initSpacerDragAndDrop;
+
+  window.addEventListener('load', () => {
+    initSpacers();
+    initSpacerDragAndDrop();
   });
 })();
 """
@@ -1429,6 +1590,48 @@ DRAGGABLE_IMAGES_JS = r"""
 """
 
 
+CONSTRAINTS_TOGGLES_JS = r"""
+(function(){
+  const MAP = [
+    {id:'toggleReserveFooter', cls:'constraint-no-footer-reserve', inverse:true},
+    {id:'toggleReserveHeader', cls:'constraint-no-header-reserve', inverse:true},
+    {id:'toggleReservePresence', cls:'constraint-no-presence-reserve', inverse:true},
+    {id:'toggleShowPresenceBlock', cls:'constraint-hide-presence-block', inverse:true},
+    {id:'toggleMergeZones', cls:'constraint-no-merge-zones', inverse:true},
+    {id:'toggleSplitZoneRows', cls:'constraint-no-zone-split', inverse:true},
+    {id:'toggleAvoidSessionSplit', cls:'constraint-allow-session-split', inverse:false},
+    {id:'toggleAvoidZoneTitleBreak', cls:'constraint-allow-zone-title-break', inverse:false},
+    {id:'toggleRespectManualPageBreaks', cls:'constraint-ignore-manual-breaks', inverse:true},
+    {id:'toggleRespectAvoidBreaks', cls:'constraint-ignore-avoid-breaks', inverse:true},
+    {id:'toggleStrictA4Screen', cls:'constraint-free-page-height', inverse:true},
+    {id:'toggleShowGuides', cls:'constraint-hide-guides', inverse:true},
+    {id:'toggleShowSpacers', cls:'constraint-hide-spacers', inverse:true},
+  ];
+
+  function applyToggle(t){
+    const el = document.getElementById(t.id);
+    if(!el) return;
+    const activeClass = t.inverse ? !el.checked : el.checked;
+    document.body.classList.toggle(t.cls, !!activeClass);
+  }
+
+  function refresh(){
+    MAP.forEach(applyToggle);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  window.addEventListener('load', () => {
+    MAP.forEach(t => {
+      const el = document.getElementById(t.id);
+      if(!el) return;
+      el.addEventListener('change', refresh);
+    });
+    refresh();
+  });
+})();
+"""
+
+
 PRINT_OPTIMIZE_JS = r"""
 (function(){
   function optimizeWhitespaceForPrint(){
@@ -1456,7 +1659,7 @@ PAGINATION_JS = r"""
     return Number.isNaN(n) ? 0 : n;
   }
 
-  function calcAvailable(page, includePresence){
+  function calcAvailable(page){
     const pageContent = page.querySelector('.pageContent');
     const footer = page.querySelector('.docFooter');
     const header = page.querySelector('.reportHeader');
@@ -1465,15 +1668,11 @@ PAGINATION_JS = r"""
     if(!pageContent) return pageRect.height;
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
-    if(header){ available -= header.getBoundingClientRect().height; }
-    if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
+    const body = document.body;
+    if(footer && !body.classList.contains('constraint-no-footer-reserve')){ available -= footer.getBoundingClientRect().height; }
+    if(header && !body.classList.contains('constraint-no-header-reserve')){ available -= header.getBoundingClientRect().height; }
+    if(presence && !body.classList.contains('constraint-no-presence-reserve')){ available -= presence.getBoundingClientRect().height; }
     return available;
-  }
-
-  function clearExtraPages(container){
-    const pages = Array.from(container.querySelectorAll('.page--report'));
-    pages.slice(1).forEach(page => page.remove());
   }
 
   function mergeZoneBlocks(container){
@@ -1531,10 +1730,11 @@ PAGINATION_JS = r"""
       endIndex += 1;
       if(endIndex === startIndex + 1 && height > maxHeight){ break; }
     }
-    if(endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
+    const avoidSessionSplit = !document.body.classList.contains('constraint-allow-session-split');
+    if(avoidSessionSplit && endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
       endIndex -= 1;
     }
-    if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
+    if(avoidSessionSplit && endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
       endIndex = Math.min(startIndex + 2, total);
     }
     height = titleHeight + tableOverhead;
@@ -1549,49 +1749,60 @@ PAGINATION_JS = r"""
     return {chunk, nextIndex: endIndex, height};
   }
 
+  function createPageFromTemplate(container, template, presenceSource, includePresence){
+    const clone = template.content.firstElementChild.cloneNode(true);
+    const showPresenceBlock = !document.body.classList.contains('constraint-hide-presence-block');
+    if(includePresence && presenceSource && showPresenceBlock){
+      const reportTables = clone.querySelector('.reportTables');
+      const blocks = clone.querySelector('.reportBlocks');
+      if(reportTables && blocks){
+        reportTables.insertBefore(presenceSource.cloneNode(true), blocks);
+      }
+    }
+    container.appendChild(clone);
+    return clone;
+  }
+
   function paginate(){
     const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    if(!container || !firstPage) return;
-    const blocksContainer = firstPage.querySelector('.reportBlocks');
-    if(!blocksContainer) return;
-    mergeZoneBlocks(container);
+    const template = document.getElementById('report-page-template');
+    const existingPages = Array.from(container?.querySelectorAll('.page--report') || []);
+    if(!container || !template || !existingPages.length) return;
+
+    const presenceSource = existingPages[0].querySelector('.presenceWrap');
+    const allowMergeZones = !document.body.classList.contains('constraint-no-merge-zones');
+    if(allowMergeZones){ mergeZoneBlocks(container); }
+
     const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => ({
       node: block,
       height: block.getBoundingClientRect().height || block.offsetHeight || 0,
-      splitData: block.classList.contains('zoneBlock') ? getZoneSplitData(block) : null,
+      splitData: (block.classList.contains('zoneBlock') && !document.body.classList.contains('constraint-no-zone-split')) ? getZoneSplitData(block) : null,
     }));
 
-    blocks.forEach(({node}) => node.remove());
-    clearExtraPages(container);
+    existingPages.forEach(page => page.remove());
 
-    let currentPage = firstPage;
-    let currentBlocks = blocksContainer;
-    let available = calcAvailable(currentPage, true);
+    let currentPage = createPageFromTemplate(container, template, presenceSource, true);
+    let currentBlocks = currentPage.querySelector('.reportBlocks');
+    let available = calcAvailable(currentPage);
     let used = 0;
-    const template = document.getElementById('report-page-template');
 
     blocks.forEach(({node, height, splitData}) => {
       if(splitData && splitData.rows.length){
         let rowIndex = 0;
         while(rowIndex < splitData.rows.length){
           const remaining = available - used;
-          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && used > 0){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
+          if(remaining <= splitData.titleHeight + splitData.tableOverhead && used > 0){
+            currentPage = createPageFromTemplate(container, template, null, false);
+            currentBlocks = currentPage.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage);
             used = 0;
           }
           const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
           const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
-          if(used > 0 && used + chunkHeight > available && template){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
+          if(used > 0 && used + chunkHeight > available){
+            currentPage = createPageFromTemplate(container, template, null, false);
+            currentBlocks = currentPage.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage);
             used = 0;
           }
           currentBlocks.appendChild(chunk);
@@ -1601,18 +1812,19 @@ PAGINATION_JS = r"""
         }
         return;
       }
-      if(used > 0 && used + height > available && template){
-        const clone = template.content.firstElementChild.cloneNode(true);
-        container.appendChild(clone);
-        currentPage = clone;
-        currentBlocks = clone.querySelector('.reportBlocks');
-        available = calcAvailable(currentPage, false);
+      if(used > 0 && used + height > available){
+        currentPage = createPageFromTemplate(container, template, null, false);
+        currentBlocks = currentPage.querySelector('.reportBlocks');
+        available = calcAvailable(currentPage);
         used = 0;
       }
       currentBlocks.appendChild(node);
       const actualHeight = node.getBoundingClientRect().height || height;
       used += actualHeight;
     });
+
+    if(window.initLayoutSpacers){ window.initLayoutSpacers(); }
+    if(window.initSpacerDragAndDrop){ window.initSpacerDragAndDrop(); }
   }
 
   window.repaginateReport = paginate;
@@ -2052,6 +2264,31 @@ def render_cr(
         <button class="btn secondary editCompact" type="button" onclick="restoreAllHiddenRows()">Réafficher tout</button>
         <a class="btn secondary" href="/">Changer de réunion</a>
       </div>
+      <div class="marginPanel noPrint">
+        <div class="marginPanelTitle">Marges A4 (aperçu)</div>
+        <label>Haut (mm)<input id="marginTopMm" type="number" step="0.5" value="5" /></label>
+        <label>Droite (mm)<input id="marginRightMm" type="number" step="0.5" value="8" /></label>
+        <label>Bas (mm)<input id="marginBottomMm" type="number" step="0.5" value="-5" /></label>
+        <label>Gauche (mm)<input id="marginLeftMm" type="number" step="0.5" value="8" /></label>
+        <button class="btn secondary" type="button" id="btnApplyMargins">Appliquer marges</button>
+      </div>
+
+      <div class="constraintsPanel noPrint"> 
+        <div class="marginPanelTitle">Contraintes pagination</div>
+        <label><input id="toggleReserveFooter" type="checkbox" /> Réserver footer</label>
+        <label><input id="toggleReserveHeader" type="checkbox" /> Réserver header</label>
+        <label><input id="toggleReservePresence" type="checkbox" /> Réserver présence page 2</label>
+        <label><input id="toggleShowPresenceBlock" type="checkbox" checked /> Afficher présence page 2</label>
+        <label><input id="toggleMergeZones" type="checkbox" checked /> Fusionner zones identiques</label>
+        <label><input id="toggleSplitZoneRows" type="checkbox" checked /> Découper zones par lignes</label>
+        <label><input id="toggleAvoidSessionSplit" type="checkbox" /> Éviter coupure sous-session</label>
+        <label><input id="toggleAvoidZoneTitleBreak" type="checkbox" /> Éviter coupure titre zone</label>
+        <label><input id="toggleRespectManualPageBreaks" type="checkbox" checked /> Respecter sauts manuels</label>
+        <label><input id="toggleRespectAvoidBreaks" type="checkbox" checked /> Respecter anti-coupures</label>
+        <label><input id="toggleStrictA4Screen" type="checkbox" checked /> Hauteur A4 stricte (écran)</label>
+        <label><input id="toggleShowGuides" type="checkbox" /> Afficher guides rouges</label>
+        <label><input id="toggleShowSpacers" type="checkbox" /> Afficher espaces rouges</label>
+      </div>
       <div class="rangePanel noPrint" id="rangePanel" style="display:{'flex' if range_active else 'none'}">
         <div class="rangeFields">
           <div class="rangeField">
@@ -2216,6 +2453,7 @@ def render_cr(
           <div class="zoneTitle">
             <span>{zt}</span>
             <div class="zoneTools noPrint">
+              <button class="zoneBtn" type="button" data-action="add-space-before">+ Espace</button>
               <button class="zoneBtn" type="button" data-action="move-up">↑</button>
               <button class="zoneBtn" type="button" data-action="move-down">↓</button>
               <button class="zoneBtn" type="button" data-action="highlight">Surligner</button>
@@ -2374,14 +2612,18 @@ def render_cr(
   --a4-padding-x:6mm;
   --kpi-cols:4;
   --top-scale:1;
+  --page-pad-top:5mm;
+  --page-pad-right:8mm;
+  --page-pad-bottom:-5mm;
+  --page-pad-left:8mm;
 }}
 *{{box-sizing:border-box}}
 html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 body{{padding:14px 14px 14px 280px;}}
 .wrap{{display:flex;flex-direction:column;gap:12px;align-items:center;}}
-.page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:visible;break-after:page;page-break-after:always;}}
+.page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:hidden;break-after:page;page-break-after:always;}}
 .page:last-child{{break-after:auto;page-break-after:auto;}}
-.pageContent{{padding:10mm 8mm 34mm 8mm;}}
+.pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);outline:1px dashed rgba(239,68,68,.35);outline-offset:-1px;}}
 .page--cover .pageContent{{padding-top:0;}}
 .muted{{color:var(--muted)}}
 .small{{font-size:12px}}
@@ -2467,6 +2709,22 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .zoneTools{{display:flex;align-items:center;gap:6px;margin-left:auto}}
 .zoneBtn{{border:1px solid #ffffff;background:#fff;border-radius:8px;padding:4px 8px;font-weight:800;cursor:pointer}}
 .zoneBlock.highlight{{box-shadow:0 0 0 2px #f59e0b inset; background:linear-gradient(180deg,#fff7ed,#fff)}}
+.layoutSpacer{{position:relative;border:1px dashed rgba(220,38,38,.65);background:rgba(248,113,113,.28);border-radius:8px;margin:0;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between}}
+.layoutSpacerHeader{{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:11px;font-weight:800;color:#7f1d1d;background:rgba(254,202,202,.66)}}
+.layoutSpacerHeader .layoutSpacerValue{{margin-left:auto}}
+.layoutSpacerGrip{{height:12px;background:repeating-linear-gradient(90deg, rgba(127,29,29,.45), rgba(127,29,29,.45) 4px, transparent 4px, transparent 8px);cursor:ns-resize;opacity:.8}}
+.layoutSpacer.isResizing{{outline:2px solid #ef4444;outline-offset:1px}}
+.layoutSpacer.draggingSpacer{{opacity:.6}}
+body.constraint-hide-spacers .layoutSpacer{{display:none!important}}
+body.constraint-hide-guides .pageContent{{outline:none!important}}
+body.constraint-free-page-height .page{{height:auto;min-height:0}}
+body.constraint-allow-zone-title-break .zoneTitle{{break-after:auto;page-break-after:auto}}
+body.constraint-allow-session-split .sessionSubRow{{break-inside:auto;page-break-inside:auto}}
+body.constraint-ignore-manual-breaks .zoneBlock.pageBreakBefore,
+body.constraint-ignore-manual-breaks .u-page-break{{break-before:auto!important;page-break-before:auto!important}}
+body.constraint-ignore-avoid-breaks .u-avoid-break,
+body.constraint-ignore-avoid-breaks .sessionSubRow,
+body.constraint-ignore-avoid-breaks .zoneTitle{{break-inside:auto!important;page-break-inside:auto!important;break-after:auto!important;page-break-after:auto!important}}
 .zoneBlock.pageBreakBefore{{page-break-before:always}}
 .u-page-break{{break-before:page;page-break-before:always;}}
 .u-avoid-break{{break-inside:avoid;page-break-inside:avoid;}}
@@ -2506,6 +2764,13 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--accent);color:#fff;font-weight:950;cursor:pointer;text-decoration:none}}
 .btn.secondary{{background:#fff;color:var(--text);font-weight:900}}
 .rangePanel{{position:fixed;top:14px;left:14px;z-index:10001;width:248px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.marginPanel{{position:fixed;top:14px;right:14px;z-index:10001;width:220px;border:1px solid var(--border);border-radius:14px;padding:10px;background:#fff;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(2,6,23,.12)}}
+.marginPanelTitle{{font-weight:900}}
+.marginPanel label{{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;font-weight:700}}
+.marginPanel input{{width:84px;padding:5px 6px;border:1px solid var(--border);border-radius:8px}}
+.constraintsPanel{{position:fixed;top:290px;right:14px;z-index:10001;width:220px;border:1px solid var(--border);border-radius:14px;padding:10px;background:#fff;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(2,6,23,.12)}}
+.constraintsPanel label{{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:700}}
+.constraintsPanel input{{accent-color:#0f172a}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
@@ -2564,6 +2829,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
 
 @media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} .rowImageTools{{display:none!important}} .thumbRemove{{display:none!important}} }}
+@media print{{ .noPrintSpacer{{display:none!important}} }}
 @media print{{ .sessionSubRow{{break-inside:avoid;page-break-inside:avoid}} .zoneTitle{{break-after:avoid-page;page-break-after:avoid}} }}
 
 
@@ -2588,8 +2854,8 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .compactRow .colComment .entryComment{{margin-top:6px}}
 
 @media print{{
-  .page{{height:auto;min-height:0}}
-  .pageContent{{padding:8mm 7mm 30mm 7mm}}
+  .page{{height:297mm;min-height:297mm}}
+  .pageContent{{padding:var(--page-pad-top) var(--page-pad-right) var(--page-pad-bottom) var(--page-pad-left);outline:none}}
   .crTable th, .crTable td{{padding:5px 6px}}
   .zoneTitle{{padding:5px 7px}}
   .reportHeader{{margin-bottom:6px}}
@@ -2630,7 +2896,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel,.marginPanel,.constraintsPanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
@@ -2832,6 +3098,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 <script>{ROW_CONTROL_JS}</script>
 <script>{RESIZE_COLUMNS_JS}</script>
 <script>{RESIZE_TOP_JS}</script>
+<script>{CONSTRAINTS_TOGGLES_JS}</script>
 </body>
 </html>
 """
