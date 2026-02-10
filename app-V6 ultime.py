@@ -495,7 +495,7 @@ def _format_entry_text_html(v) -> str:
     s = re.sub(r"[ \t]+", " ", s)
     s = re.sub(r"\n[ \t]+", "\n", s)
     s = re.sub(r"(?<!\n)\s*(•|●|◦|▪|‣|\*)\s+", r"\n\1 ", s)
-    s = re.sub(r"(?<!\n)\s-\s+(?=\S)", r"\n- ", s)
+    s = re.sub(r"(?<!\n)(?<!\w)-\s+(?=\S)", r"\n- ", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     return _escape(s.strip()).replace("\n", "<br>")
 
@@ -1291,10 +1291,15 @@ LAYOUT_CONTROLS_JS = r"""
 
 DRAGGABLE_IMAGES_JS = r"""
 (function(){
+  function ensureThumbWrapper(imgSrc){
+    return `<span class="thumbAWrap" data-thumb draggable="true"><a class="thumbA" href="${imgSrc}" target="_blank" rel="noopener"><img class="thumb" src="${imgSrc}" alt="" /></a><button type="button" class="thumbRemove noPrint" title="Supprimer">×</button><span class="thumbHandle" title="Déplacer / redimensionner"></span></span>`;
+  }
+
   function initGallery(gallery){
     if(!gallery || gallery.dataset.dragReady === '1') return;
     gallery.dataset.dragReady = '1';
     let dragEl = null;
+
     gallery.addEventListener('dragstart', (e) => {
       const wrap = e.target.closest('.thumbAWrap');
       if(!wrap) return;
@@ -1303,10 +1308,12 @@ DRAGGABLE_IMAGES_JS = r"""
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', 'thumb');
     });
+
     gallery.addEventListener('dragend', () => {
       if(dragEl){ dragEl.classList.remove('dragging'); }
       dragEl = null;
     });
+
     gallery.addEventListener('dragover', (e) => {
       if(!dragEl) return;
       e.preventDefault();
@@ -1315,6 +1322,55 @@ DRAGGABLE_IMAGES_JS = r"""
       const rect = over.getBoundingClientRect();
       const before = e.clientX < (rect.left + rect.width / 2);
       gallery.insertBefore(dragEl, before ? over : over.nextSibling);
+    });
+
+    gallery.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.thumbRemove');
+      if(!removeBtn) return;
+      const wrap = removeBtn.closest('.thumbAWrap');
+      if(wrap){ wrap.remove(); }
+    });
+  }
+
+  function ensureRowGallery(cell){
+    let gallery = cell.querySelector('.thumbs[data-gallery]');
+    if(!gallery){
+      gallery = document.createElement('div');
+      gallery.className = 'thumbs';
+      gallery.setAttribute('data-gallery', '1');
+      const comment = cell.querySelector('.commentText');
+      if(comment && comment.nextSibling){
+        comment.parentNode.insertBefore(gallery, comment.nextSibling);
+      }else{
+        cell.appendChild(gallery);
+      }
+    }
+    initGallery(gallery);
+    return gallery;
+  }
+
+  function setupImageButtons(){
+    document.querySelectorAll('.colComment').forEach(cell => {
+      const btn = cell.querySelector('.btnAddImage');
+      const input = cell.querySelector('.imageInput');
+      if(!btn || !input || btn.dataset.ready === '1') return;
+      btn.dataset.ready = '1';
+      btn.addEventListener('click', () => input.click());
+      input.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
+        if(!files.length) return;
+        const gallery = ensureRowGallery(cell);
+        files.forEach(file => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const src = String(reader.result || '');
+            if(!src) return;
+            gallery.insertAdjacentHTML('beforeend', ensureThumbWrapper(src));
+          };
+          reader.readAsDataURL(file);
+        });
+        input.value = '';
+      });
     });
   }
 
@@ -1325,6 +1381,7 @@ DRAGGABLE_IMAGES_JS = r"""
         wrap.setAttribute('draggable', 'true');
       });
     });
+    setupImageButtons();
   };
 
   window.addEventListener('load', () => {
@@ -1332,6 +1389,7 @@ DRAGGABLE_IMAGES_JS = r"""
   });
 })();
 """
+
 
 PRINT_OPTIMIZE_JS = r"""
 (function(){
@@ -2032,7 +2090,7 @@ def render_cr(
         reminder_closed: bool = False,
         row_id: str = "",
     ) -> str:
-        title = _escape(r.get(E_COL_TITLE, ""))
+        title = _format_entry_text_html(r.get(E_COL_TITLE, ""))
         company = _escape(r.get(E_COL_COMPANY_TASK, ""))
         packages = _escape(r.get(E_COL_PACKAGES, ""))
         concerne_display = _concerne_trigram(company)
@@ -2058,10 +2116,10 @@ def render_cr(
         thumbs = ""
         if img_urls:
             thumbs_imgs = "".join(
-                f"<span class='thumbAWrap'><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><span class='thumbHandle' title='Déplacer'></span></span>"
+                f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
                 for u in img_urls[:6]
             )
-            thumbs = f"<div class='thumbs'>{thumbs_imgs}</div>"
+            thumbs = f"<div class='thumbs' data-gallery>{thumbs_imgs}</div>"
 
         row_cls = "rowItem rowMeeting" if is_meeting else "rowItem"
 
@@ -2079,6 +2137,7 @@ def render_cr(
           <tr class="{row_cls} compactRow" data-row-id="{safe_row_id}" data-entry-type="{"task" if is_task else "memo"}">
             <td class="colType">{toggle_html}<div>{tag_html or "—"}</div></td>
             <td class="colComment">
+              <div class="rowImageTools noPrint"><button type="button" class="btnAddImage">+ Image</button><input type="file" class="imageInput" accept="image/*" multiple hidden /></div>
               <div class="commentText">{title}</div>
               {thumbs}
               {render_entry_comment(r)}
@@ -2452,6 +2511,9 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .sessionSubRowCurrent td.colComment{{color:#1d4ed8;text-decoration:underline;text-underline-offset:2px;}}
 .colType{{text-align:center;font-weight:1000;white-space:nowrap;position:relative}}
 .colComment{{white-space:normal;position:relative}}
+.rowImageTools{{display:flex;justify-content:flex-end;margin-bottom:4px}}
+.btnAddImage{{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;cursor:pointer}}
+.btnAddImage:hover{{background:#f8fafc}}
 .colDate{{text-align:center;font-variant-numeric: tabular-nums;white-space:nowrap;position:relative}}
 .colLot{{text-align:center;white-space:nowrap;position:relative}}
 .colWho{{text-align:center;white-space:nowrap;position:relative}}
@@ -2463,7 +2525,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .colGrip{{position:absolute;top:0;right:-6px;width:12px;height:100%;cursor:col-resize}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
 
-@media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} }}
+@media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} .rowImageTools{{display:none!important}} .thumbRemove{{display:none!important}} }}
 
 .crTable tr.rowMeeting td{{background:#eef8ff;}}
 .crTable tr.rowMeeting td.colType{{box-shadow:inset 4px 0 0 #2563eb;}}
@@ -2475,9 +2537,11 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .thumbA{{display:inline-flex;cursor:grab}}
 .commentText{{font-weight:400;line-height:1.24;white-space:normal}}
 .tagReminder{{color:#b91c1c;font-weight:900}}
-.thumbAWrap{{position:relative;display:inline-flex;touch-action:none}}
+.thumbAWrap{{position:relative;display:inline-flex;touch-action:none;resize:both;overflow:auto;max-width:100%}}
 .thumbAWrap.dragging{{opacity:.7;z-index:5}}
 .thumbHandle{{position:absolute;right:4px;bottom:4px;width:14px;height:14px;border:2px solid rgba(15,23,42,.45);border-top:none;border-left:none;pointer-events:none}}
+.thumbRemove{{position:absolute;top:2px;right:2px;width:18px;height:18px;border:none;border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-weight:900;line-height:18px;padding:0;cursor:pointer}}
+.thumbRemove:hover{{background:#dc2626}}
 .colComment br + br{{display:none}}
 .compactRow .colComment{{line-height:1.22}}
 .compactRow .colComment .entryComment{{margin-top:6px}}
@@ -2490,6 +2554,8 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
   .reportHeader{{margin-bottom:6px}}
   .thumb{{height:72px;max-width:130px}}
   .thumbHandle{{display:none}}
+  .thumbRemove{{display:none}}
+  .btnAddImage{{display:none}}
 }}
 .annexTable{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;border:1px solid var(--border)}}
 .annexTable thead{{display:table-header-group}}
