@@ -1272,10 +1272,10 @@ LAYOUT_CONTROLS_JS = r"""
 
   function setPageMargins(top, right, bottom, left){
     const root = document.documentElement;
-    root.style.setProperty('--page-pad-top', `${Math.max(0, top)}mm`);
-    root.style.setProperty('--page-pad-right', `${Math.max(0, right)}mm`);
-    root.style.setProperty('--page-pad-bottom', `${Math.max(0, bottom)}mm`);
-    root.style.setProperty('--page-pad-left', `${Math.max(0, left)}mm`);
+    root.style.setProperty('--page-pad-top', `${top}mm`);
+    root.style.setProperty('--page-pad-right', `${right}mm`);
+    root.style.setProperty('--page-pad-bottom', `${bottom}mm`);
+    root.style.setProperty('--page-pad-left', `${left}mm`);
     if(window.repaginateReport){ window.repaginateReport(); }
   }
 
@@ -1433,9 +1433,9 @@ LAYOUT_CONTROLS_JS = r"""
     const btn = e.target.closest('#btnApplyMargins');
     if(!btn) return;
     setPageMargins(
-      readMarginInput('marginTopMm', 10),
+      readMarginInput('marginTopMm', 5),
       readMarginInput('marginRightMm', 8),
-      readMarginInput('marginBottomMm', 34),
+      readMarginInput('marginBottomMm', -5),
       readMarginInput('marginLeftMm', 8)
     );
   });
@@ -2259,23 +2259,23 @@ def render_cr(
       </div>
       <div class="marginPanel noPrint">
         <div class="marginPanelTitle">Marges A4 (aperçu)</div>
-        <label>Haut (mm)<input id="marginTopMm" type="number" step="0.5" value="10" /></label>
+        <label>Haut (mm)<input id="marginTopMm" type="number" step="0.5" value="5" /></label>
         <label>Droite (mm)<input id="marginRightMm" type="number" step="0.5" value="8" /></label>
-        <label>Bas (mm)<input id="marginBottomMm" type="number" step="0.5" value="34" /></label>
+        <label>Bas (mm)<input id="marginBottomMm" type="number" step="0.5" value="-5" /></label>
         <label>Gauche (mm)<input id="marginLeftMm" type="number" step="0.5" value="8" /></label>
         <button class="btn secondary" type="button" id="btnApplyMargins">Appliquer marges</button>
       </div>
 
       <div class="constraintsPanel noPrint"> 
         <div class="marginPanelTitle">Contraintes pagination</div>
-        <label><input id="toggleReserveFooter" type="checkbox" checked /> Réserver footer</label>
-        <label><input id="toggleReserveHeader" type="checkbox" checked /> Réserver header</label>
-        <label><input id="toggleReservePresence" type="checkbox" checked /> Réserver présence page 2</label>
-        <label><input id="toggleAvoidSessionSplit" type="checkbox" checked /> Éviter coupure sous-session</label>
-        <label><input id="toggleAvoidZoneTitleBreak" type="checkbox" checked /> Éviter coupure titre zone</label>
+        <label><input id="toggleReserveFooter" type="checkbox" /> Réserver footer</label>
+        <label><input id="toggleReserveHeader" type="checkbox" /> Réserver header</label>
+        <label><input id="toggleReservePresence" type="checkbox" /> Réserver présence page 2</label>
+        <label><input id="toggleAvoidSessionSplit" type="checkbox" /> Éviter coupure sous-session</label>
+        <label><input id="toggleAvoidZoneTitleBreak" type="checkbox" /> Éviter coupure titre zone</label>
         <label><input id="toggleStrictA4Screen" type="checkbox" checked /> Hauteur A4 stricte (écran)</label>
-        <label><input id="toggleShowGuides" type="checkbox" checked /> Afficher guides rouges</label>
-        <label><input id="toggleShowSpacers" type="checkbox" checked /> Afficher espaces rouges</label>
+        <label><input id="toggleShowGuides" type="checkbox" /> Afficher guides rouges</label>
+        <label><input id="toggleShowSpacers" type="checkbox" /> Afficher espaces rouges</label>
       </div>
       <div class="rangePanel noPrint" id="rangePanel" style="display:{'flex' if range_active else 'none'}">
         <div class="rangeFields">
@@ -2600,9 +2600,9 @@ def render_cr(
   --a4-padding-x:6mm;
   --kpi-cols:4;
   --top-scale:1;
-  --page-pad-top:10mm;
+  --page-pad-top:5mm;
   --page-pad-right:8mm;
-  --page-pad-bottom:34mm;
+  --page-pad-bottom:-5mm;
   --page-pad-left:8mm;
 }}
 *{{box-sizing:border-box}}
