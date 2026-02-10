@@ -1253,6 +1253,95 @@ document.addEventListener('click', (e) => {
 });
 """
 
+CONSTRAINT_TOGGLES_JS = r"""
+(function(){
+  const panel = document.getElementById('constraintsPanel');
+  if(!panel) return;
+  const root = document.documentElement;
+  const body = document.body;
+  const STORAGE_KEY = 'tempo.constraint.toggles.v1';
+
+  const defaultState = {
+    fixedA4: true,
+    fixedPageHeight: true,
+    pageBreaks: true,
+    bodyOffset: true,
+    pagePadding: true,
+    tableFixed: true,
+    printHideUi: true,
+    printStickyHeader: true,
+    printCompactRows: true,
+    printAvoidSplitRows: true,
+    printAutoOptimize: true,
+    topScale: true,
+  };
+
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {...defaultState, ...parsed};
+    }catch(_){
+      return {...defaultState};
+    }
+  }
+
+  function saveState(state){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function applyConstraint(name, active){
+    body.classList.toggle(`constraint-off-${name}`, !active);
+  }
+
+  function applyAll(state){
+    Object.entries(state).forEach(([k, v]) => applyConstraint(k, !!v));
+  }
+
+  function updatePrintMargins(){
+    const t = document.getElementById('printMarginTop');
+    const r = document.getElementById('printMarginRight');
+    const b = document.getElementById('printMarginBottom');
+    const l = document.getElementById('printMarginLeft');
+    const target = document.getElementById('dynamicPrintMargins');
+    if(!t || !r || !b || !l || !target) return;
+    const tv = parseFloat(t.value || '0');
+    const rv = parseFloat(r.value || '0');
+    const bv = parseFloat(b.value || '0');
+    const lv = parseFloat(l.value || '0');
+    document.getElementById('printMarginTopValue').textContent = `${tv.toFixed(1)} mm`;
+    document.getElementById('printMarginRightValue').textContent = `${rv.toFixed(1)} mm`;
+    document.getElementById('printMarginBottomValue').textContent = `${bv.toFixed(1)} mm`;
+    document.getElementById('printMarginLeftValue').textContent = `${lv.toFixed(1)} mm`;
+    target.textContent = `@page { size: A4 portrait; margin: ${tv}mm ${rv}mm ${bv}mm ${lv}mm; }`;
+  }
+
+  const state = loadState();
+  panel.querySelectorAll('[data-constraint]').forEach(input => {
+    const name = input.getAttribute('data-constraint');
+    if(!(name in state)) return;
+    input.checked = !!state[name];
+    input.addEventListener('change', () => {
+      state[name] = !!input.checked;
+      applyConstraint(name, state[name]);
+      saveState(state);
+      if(window.repaginateReport){ window.repaginateReport(); }
+    });
+  });
+
+  panel.querySelectorAll('[data-print-margin]').forEach(input => {
+    input.addEventListener('input', updatePrintMargins);
+  });
+
+  document.getElementById('btnConstraints')?.addEventListener('click', () => {
+    panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+  });
+
+  applyAll(state);
+  updatePrintMargins();
+})();
+"""
+
 LAYOUT_CONTROLS_JS = r"""
 (function(){
   function closestZone(el){ return el.closest('.zoneBlock'); }
@@ -1432,12 +1521,14 @@ DRAGGABLE_IMAGES_JS = r"""
 PRINT_OPTIMIZE_JS = r"""
 (function(){
   function optimizeWhitespaceForPrint(){
+    if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
     document.body.classList.add('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
     }
   }
   function restoreAfterPrint(){
+    if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
     document.body.classList.remove('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
@@ -2045,7 +2136,8 @@ def render_cr(
         <button class="btn secondary editCompact" id="btnQualityCheck" type="button">Qualité du texte</button>
         <button class="btn secondary editCompact" id="btnAnalysis" type="button">Analyse</button>
         <button class="btn secondary editCompact" id="btnRange" type="button" onclick="toggleRangePanel()">Choisir une période</button>
-                <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
+        <button class="btn secondary editCompact" id="btnConstraints" type="button">Contraintes HTML / impression</button>
+        <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
           <option value="">Lignes masquées…</option>
         </select>
         <button class="btn secondary editCompact" type="button" onclick="restoreSelectedRow()">Réafficher la ligne</button>
@@ -2069,6 +2161,32 @@ def render_cr(
           <button class="btn" type="button" onclick="applyRange()">Appliquer</button>
         </div>
       </div>
+      <div class="constraintsPanel noPrint" id="constraintsPanel" style="display:none">
+        <div class="panelTitle">Détection des contraintes de mise en page</div>
+        <div class="muted small">Désactive une contrainte pour voir immédiatement son effet sur l'affichage HTML et/ou l'impression.</div>
+        <div class="constraintList">
+          <label><input type="checkbox" data-constraint="fixedA4" checked /> Gabarit A4 fixe (largeur 210mm)</label>
+          <label><input type="checkbox" data-constraint="fixedPageHeight" checked /> Hauteur de page forcée (297mm)</label>
+          <label><input type="checkbox" data-constraint="pageBreaks" checked /> Sauts de page forcés entre sections</label>
+          <label><input type="checkbox" data-constraint="bodyOffset" checked /> Décalage du body (panneau d'actions à gauche)</label>
+          <label><input type="checkbox" data-constraint="pagePadding" checked /> Padding interne de la page</label>
+          <label><input type="checkbox" data-constraint="tableFixed" checked /> Colonnes de tableau en layout fixe</label>
+          <label><input type="checkbox" data-constraint="printHideUi" checked /> Masquer les outils UI à l'impression</label>
+          <label><input type="checkbox" data-constraint="printStickyHeader" checked /> Header sticky en impression</label>
+          <label><input type="checkbox" data-constraint="printCompactRows" checked /> Compactage des lignes pour imprimer</label>
+          <label><input type="checkbox" data-constraint="printAvoidSplitRows" checked /> Empêcher la coupure de lignes/blocs</label>
+          <label><input type="checkbox" data-constraint="printAutoOptimize" checked /> Optimisation auto avant impression</label>
+          <label><input type="checkbox" data-constraint="topScale" checked /> Mise à l'échelle du bandeau haut</label>
+        </div>
+        <div class="panelTitle">Marges d'impression A4 (@page)</div>
+        <div class="printMarginControls">
+          <label>Haut <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginTop" data-print-margin="top" /><span id="printMarginTopValue">0.0 mm</span></label>
+          <label>Droite <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginRight" data-print-margin="right" /><span id="printMarginRightValue">0.0 mm</span></label>
+          <label>Bas <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginBottom" data-print-margin="bottom" /><span id="printMarginBottomValue">0.0 mm</span></label>
+          <label>Gauche <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginLeft" data-print-margin="left" /><span id="printMarginLeftValue">0.0 mm</span></label>
+        </div>
+      </div>
+      <style id="dynamicPrintMargins"></style>
     """
 
     # Card renderer for tasks outside the meeting (rappels / à-suivre) — NO BADGES
@@ -2506,6 +2624,13 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--accent);color:#fff;font-weight:950;cursor:pointer;text-decoration:none}}
 .btn.secondary{{background:#fff;color:var(--text);font-weight:900}}
 .rangePanel{{position:fixed;top:14px;left:14px;z-index:10001;width:248px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.constraintsPanel{{position:fixed;top:14px;left:276px;z-index:10001;width:420px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.panelTitle{{font-weight:900;font-size:13px}}
+.constraintList{{display:grid;grid-template-columns:1fr;gap:6px}}
+.constraintList label{{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.25}}
+.printMarginControls{{display:grid;grid-template-columns:1fr;gap:8px}}
+.printMarginControls label{{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:8px;font-size:12px}}
+.printMarginControls input[type="range"]{{width:100%}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
@@ -2527,6 +2652,18 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 
 /* PRINT TABLE */
 @page {{ size: A4 portrait; margin: 0; }}
+body.constraint-off-fixedA4 .page{{width:auto!important}}
+body.constraint-off-fixedPageHeight .page{{height:auto!important;min-height:auto!important}}
+body.constraint-off-pageBreaks .page,body.constraint-off-pageBreaks .page:last-child{{break-after:auto!important;page-break-after:auto!important}}
+body.constraint-off-bodyOffset{{padding:14px!important}}
+body.constraint-off-pagePadding .pageContent{{padding:0!important}}
+body.constraint-off-tableFixed .crTable{{table-layout:auto!important}}
+body.constraint-off-printStickyHeader .printHeaderFixed{{position:static!important;top:auto!important}}
+body.constraint-off-printCompactRows.printOptimized .crTable th,body.constraint-off-printCompactRows.printOptimized .crTable td{{padding:7px 8px!important;line-height:1.3!important}}
+body.constraint-off-printCompactRows.printOptimized .thumb{{height:80px!important;max-width:140px!important}}
+body.constraint-off-topScale .topPage{{transform:none!important}}
+@media print{{body.constraint-off-printHideUi .actions,body.constraint-off-printHideUi .rangePanel,body.constraint-off-printHideUi .constraintsPanel{{display:flex!important}}}}
+@media print{{body.constraint-off-printAvoidSplitRows .sessionSubRow,body.constraint-off-printAvoidSplitRows .zoneTitle{{break-inside:auto!important;page-break-inside:auto!important;break-after:auto!important;page-break-after:auto!important}}}}
 
 .zoneBlock{{margin:0}}
 .zoneBlock + .zoneBlock{{margin-top:0}}
@@ -2630,7 +2767,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel,.constraintsPanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
@@ -2825,6 +2962,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 <script>{ANALYSIS_MODAL_JS}</script>
 <script>{SYNC_EDITABLE_JS}</script>
 <script>{RANGE_PICKER_JS}</script>
+<script>{CONSTRAINT_TOGGLES_JS}</script>
 <script>{LAYOUT_CONTROLS_JS}</script>
 <script>{DRAGGABLE_IMAGES_JS}</script>
 <script>{PAGINATION_JS}</script>
