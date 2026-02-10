@@ -484,6 +484,22 @@ def parse_image_urls_any(v) -> List[str]:
     return out
 
 
+def _format_entry_text_html(v) -> str:
+    """Normalize text for tasks/memos and preserve bullet-like line breaks in HTML."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    s = str(v)
+    if not s.strip() or s.strip().lower() == "nan":
+        return ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n[ \t]+", "\n", s)
+    s = re.sub(r"(?<!\n)\s*(•|●|◦|▪|‣|\*)\s+", r"\n\1 ", s)
+    s = re.sub(r"(?<!\n)(?<!\w)-\s+(?=\S)", r"\n- ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return _escape(s.strip()).replace("\n", "<br>")
+
+
 def render_images_gallery(urls: List[str], print_mode: bool) -> str:
     if not urls:
         return ""
@@ -513,7 +529,7 @@ def render_task_comment(r) -> str:
         return ""
     author = _escape(r.get(E_COL_TASK_COMMENT_AUTHOR, ""))
     d = _fmt_date(_parse_date_any(r.get(E_COL_TASK_COMMENT_DATE)))
-    body = _escape(txt).replace("\n", "<br>")
+    body = _format_entry_text_html(txt)
     meta = " • ".join([x for x in [author, d] if x])
     return f"""
       <div class="topicComment">
@@ -533,7 +549,7 @@ def render_entry_comment(r) -> str:
     author = _escape(r.get(E_COL_TASK_COMMENT_AUTHOR, ""))
     d = _fmt_date(_parse_date_any(r.get(E_COL_TASK_COMMENT_DATE)))
     company = _escape(r.get(E_COL_COMPANY_TASK, ""))
-    body = _escape(txt).replace("\n", "<br>")
+    body = _format_entry_text_html(txt)
     meta = " • ".join([x for x in [author, company, d] if x])
     return f"""
       <div class="entryComment">
@@ -1272,184 +1288,172 @@ LAYOUT_CONTROLS_JS = r"""
 })();
 """
 
-PAGINATION_JS = r"""
+
+DRAGGABLE_IMAGES_JS = r"""
 (function(){
-  function px(value){
-    const n = parseFloat(value || "0");
-    return Number.isNaN(n) ? 0 : n;
+  function ensureThumbWrapper(imgSrc){
+    return `<span class="thumbAWrap" data-thumb draggable="true"><a class="thumbA" href="${imgSrc}" target="_blank" rel="noopener"><img class="thumb" src="${imgSrc}" alt="" /></a><button type="button" class="thumbRemove noPrint" title="Supprimer">×</button><span class="thumbHandle" title="Redimensionner"></span></span>`;
   }
 
-  function calcAvailable(page, includePresence){
-    const pageContent = page.querySelector('.pageContent');
-    const footer = page.querySelector('.docFooter');
-    const header = page.querySelector('.reportHeader');
-    const presence = page.querySelector('.presenceWrap');
-    const pageRect = page.getBoundingClientRect();
-    if(!pageContent) return pageRect.height;
-    const styles = window.getComputedStyle(pageContent);
-    let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
-    if(header){ available -= header.getBoundingClientRect().height; }
-    if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
-    return available;
-  }
+  function attachResizeBehavior(wrap){
+    if(!wrap || wrap.dataset.resizeReady === '1') return;
+    wrap.dataset.resizeReady = '1';
+    const handle = wrap.querySelector('.thumbHandle');
+    const img = wrap.querySelector('.thumb');
+    if(!handle || !img) return;
 
-  function clearExtraPages(container){
-    const pages = Array.from(container.querySelectorAll('.page--report'));
-    pages.slice(1).forEach(page => page.remove());
-  }
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startWidth = img.getBoundingClientRect().width || 160;
+      wrap.classList.add('resizing');
 
-  function mergeZoneBlocks(container){
-    const zones = Array.from(container.querySelectorAll('.zoneBlock'));
-    const grouped = new Map();
-    zones.forEach(zone => {
-      const key = zone.getAttribute('data-zone-id') || '';
-      if(!grouped.has(key)){ grouped.set(key, []); }
-      grouped.get(key).push(zone);
+      const onMove = (ev) => {
+        const nextWidth = Math.min(520, Math.max(70, startWidth + (ev.clientX - startX)));
+        img.style.width = `${nextWidth}px`;
+        img.style.height = 'auto';
+      };
+
+      const onUp = () => {
+        wrap.classList.remove('resizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
     });
-    grouped.forEach(group => {
-      if(group.length < 2){ return; }
-      const target = group[0];
-      const targetBody = target.querySelector('tbody');
-      if(!targetBody){ return; }
-      group.slice(1).forEach(zone => {
-        const body = zone.querySelector('tbody');
-        if(body){
-          Array.from(body.children).forEach(row => targetBody.appendChild(row));
-        }
-        zone.remove();
+  }
+
+  function initGallery(gallery){
+    if(!gallery) return;
+    gallery.querySelectorAll('.thumbAWrap').forEach(wrap => {
+      wrap.setAttribute('draggable', 'true');
+      attachResizeBehavior(wrap);
+    });
+    if(gallery.dataset.dragReady === '1') return;
+    gallery.dataset.dragReady = '1';
+
+    let dragEl = null;
+
+    gallery.addEventListener('dragstart', (e) => {
+      if(e.target.closest('.thumbHandle')){
+        e.preventDefault();
+        return;
+      }
+      const wrap = e.target.closest('.thumbAWrap');
+      if(!wrap || wrap.classList.contains('resizing')) return;
+      dragEl = wrap;
+      wrap.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'thumb');
+    });
+
+    gallery.addEventListener('dragend', () => {
+      if(dragEl){ dragEl.classList.remove('dragging'); }
+      dragEl = null;
+    });
+
+    gallery.addEventListener('dragover', (e) => {
+      if(!dragEl) return;
+      e.preventDefault();
+      const over = e.target.closest('.thumbAWrap');
+      if(!over || over === dragEl) return;
+      const rect = over.getBoundingClientRect();
+      const before = e.clientX < (rect.left + rect.width / 2);
+      gallery.insertBefore(dragEl, before ? over : over.nextSibling);
+    });
+
+    gallery.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.thumbRemove');
+      if(!removeBtn) return;
+      const wrap = removeBtn.closest('.thumbAWrap');
+      if(wrap){ wrap.remove(); }
+    });
+  }
+
+  function ensureRowGallery(cell){
+    let gallery = cell.querySelector('.thumbs[data-gallery]');
+    if(!gallery){
+      gallery = document.createElement('div');
+      gallery.className = 'thumbs';
+      gallery.setAttribute('data-gallery', '1');
+      const comment = cell.querySelector('.commentText');
+      if(comment && comment.nextSibling){
+        comment.parentNode.insertBefore(gallery, comment.nextSibling);
+      }else{
+        cell.appendChild(gallery);
+      }
+    }
+    initGallery(gallery);
+    return gallery;
+  }
+
+  function setupImageButtons(){
+    document.querySelectorAll('.colComment').forEach(cell => {
+      const btn = cell.querySelector('.btnAddImage');
+      const input = cell.querySelector('.imageInput');
+      if(!btn || !input || btn.dataset.ready === '1') return;
+      btn.dataset.ready = '1';
+      btn.addEventListener('click', () => input.click());
+      input.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
+        if(!files.length) return;
+        const gallery = ensureRowGallery(cell);
+        files.forEach(file => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const src = String(reader.result || '');
+            if(!src) return;
+            gallery.insertAdjacentHTML('beforeend', ensureThumbWrapper(src));
+            const inserted = gallery.lastElementChild;
+            if(inserted){ attachResizeBehavior(inserted); }
+          };
+          reader.readAsDataURL(file);
+        });
+        input.value = '';
       });
     });
   }
 
-  function getZoneSplitData(zone){
-    const title = zone.querySelector('.zoneTitle');
-    const table = zone.querySelector('table.crTable');
-    const tbody = table?.querySelector('tbody');
-    const rows = tbody ? Array.from(tbody.children) : [];
-    const rowHeights = rows.map(row => row.getBoundingClientRect().height || row.offsetHeight || 0);
-    const tableRect = table?.getBoundingClientRect().height || table?.offsetHeight || 0;
-    const rowsSum = rowHeights.reduce((sum, h) => sum + h, 0);
-    const tableOverhead = Math.max(0, tableRect - rowsSum);
-    const titleHeight = title?.getBoundingClientRect().height || title?.offsetHeight || 0;
-    return {rows, rowHeights, tableOverhead, titleHeight};
-  }
-
-  function cloneZoneShell(zone){
-    const clone = zone.cloneNode(true);
-    const tbody = clone.querySelector('tbody');
-    if(tbody){ tbody.innerHTML = ''; }
-    return clone;
-  }
-
-  function buildZoneChunk(zone, data, startIndex, maxHeight){
-    const {rows, rowHeights, tableOverhead, titleHeight} = data;
-    const total = rows.length;
-    let height = titleHeight + tableOverhead;
-    let endIndex = startIndex;
-    while(endIndex < total){
-      const rowHeight = rowHeights[endIndex] || 0;
-      if(endIndex > startIndex && height + rowHeight > maxHeight){ break; }
-      height += rowHeight;
-      endIndex += 1;
-      if(endIndex === startIndex + 1 && height > maxHeight){ break; }
-    }
-    if(endIndex > startIndex && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
-      endIndex -= 1;
-    }
-    if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
-      endIndex = Math.min(startIndex + 2, total);
-    }
-    height = titleHeight + tableOverhead;
-    for(let i=startIndex;i<endIndex;i++){
-      height += rowHeights[i] || 0;
-    }
-    const chunk = cloneZoneShell(zone);
-    const tbody = chunk.querySelector('tbody');
-    for(let i=startIndex;i<endIndex;i++){
-      tbody.appendChild(rows[i]);
-    }
-    return {chunk, nextIndex: endIndex, height};
-  }
-
-  function paginate(){
-    const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    if(!container || !firstPage) return;
-    const blocksContainer = firstPage.querySelector('.reportBlocks');
-    if(!blocksContainer) return;
-    mergeZoneBlocks(container);
-    const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => ({
-      node: block,
-      height: block.getBoundingClientRect().height || block.offsetHeight || 0,
-      splitData: block.classList.contains('zoneBlock') ? getZoneSplitData(block) : null,
-    }));
-
-    blocks.forEach(({node}) => node.remove());
-    clearExtraPages(container);
-
-    let currentPage = firstPage;
-    let currentBlocks = blocksContainer;
-    let available = calcAvailable(currentPage, true);
-    let used = 0;
-    const template = document.getElementById('report-page-template');
-
-    blocks.forEach(({node, height, splitData}) => {
-      if(splitData && splitData.rows.length){
-        let rowIndex = 0;
-        while(rowIndex < splitData.rows.length){
-          const remaining = available - used;
-          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && used > 0){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
-          const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
-          if(used > 0 && used + chunkHeight > available && template){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          currentBlocks.appendChild(chunk);
-          const actualHeight = chunk.getBoundingClientRect().height || chunkHeight;
-          used += actualHeight;
-          rowIndex = nextIndex;
-        }
-        return;
-      }
-      if(used > 0 && used + height > available && template){
-        const clone = template.content.firstElementChild.cloneNode(true);
-        container.appendChild(clone);
-        currentPage = clone;
-        currentBlocks = clone.querySelector('.reportBlocks');
-        available = calcAvailable(currentPage, false);
-        used = 0;
-      }
-      currentBlocks.appendChild(node);
-      const actualHeight = node.getBoundingClientRect().height || height;
-      used += actualHeight;
-    });
-  }
-
-  window.repaginateReport = paginate;
-  window.refreshPagination = function(){
-    if(!window.repaginateReport){ return; }
-    requestAnimationFrame(() => window.repaginateReport());
+  window.enableDraggableThumbs = function(){
+    document.querySelectorAll('.thumbs').forEach(initGallery);
+    setupImageButtons();
   };
+
   window.addEventListener('load', () => {
-    requestAnimationFrame(paginate);
+    window.enableDraggableThumbs();
   });
-  window.addEventListener('resize', () => {
-    clearTimeout(window.__repaginateTimer);
-    window.__repaginateTimer = setTimeout(paginate, 200);
-  });
+})();
+"""
+
+
+PRINT_OPTIMIZE_JS = r"""
+(function(){
+  function optimizeWhitespaceForPrint(){
+    document.body.classList.add('printOptimized');
+    if(window.repaginateReport){
+      window.repaginateReport();
+    }
+  }
+  function restoreAfterPrint(){
+    document.body.classList.remove('printOptimized');
+    if(window.repaginateReport){
+      window.repaginateReport();
+    }
+  }
+
+  window.addEventListener('beforeprint', optimizeWhitespaceForPrint);
+  window.addEventListener('afterprint', restoreAfterPrint);
+})();
+"""
+
+PAGINATION_JS = r"""
+(function(){
+  // Pagination manuelle désactivée: on laisse le navigateur gérer le flux print nativement.
+  window.repaginateReport = function(){};
+  window.refreshPagination = function(){};
 })();
 """
 
@@ -1896,7 +1900,7 @@ def render_cr(
 
     # Card renderer for tasks outside the meeting (rappels / à-suivre) — NO BADGES
     def render_task_card_from_row(r, tag: str, extra_class: str, img_col: Optional[str]) -> str:
-        title = _escape(r.get(E_COL_TITLE, ""))
+        title = _format_entry_text_html(r.get(E_COL_TITLE, ""))
         company = _escape(r.get(E_COL_COMPANY_TASK, ""))
         owner = _escape(r.get(E_COL_OWNER, ""))
         deadline = _fmt_date(_parse_date_any(r.get(E_COL_DEADLINE)))
@@ -1951,7 +1955,7 @@ def render_cr(
         reminder_closed: bool = False,
         row_id: str = "",
     ) -> str:
-        title = _escape(r.get(E_COL_TITLE, ""))
+        title = _format_entry_text_html(r.get(E_COL_TITLE, ""))
         company = _escape(r.get(E_COL_COMPANY_TASK, ""))
         packages = _escape(r.get(E_COL_PACKAGES, ""))
         concerne_display = _concerne_trigram(company)
@@ -1977,10 +1981,10 @@ def render_cr(
         thumbs = ""
         if img_urls:
             thumbs_imgs = "".join(
-                f"<a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a>"
+                f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
                 for u in img_urls[:6]
             )
-            thumbs = f"<div class='thumbs'>{thumbs_imgs}</div>"
+            thumbs = f"<div class='thumbs' data-gallery>{thumbs_imgs}</div>"
 
         row_cls = "rowItem rowMeeting" if is_meeting else "rowItem"
 
@@ -1995,9 +1999,10 @@ def render_cr(
         safe_row_id = _escape(row_id) or _escape(str(r.get(E_COL_ID, "")))
         toggle_html = f"<input type='checkbox' class='rowToggle noPrint' data-target='{safe_row_id}' checked />"
         return f"""
-          <tr class="{row_cls}" data-row-id="{safe_row_id}">
+          <tr class="{row_cls} compactRow" data-row-id="{safe_row_id}" data-entry-type="{"task" if is_task else "memo"}">
             <td class="colType">{toggle_html}<div>{tag_html or "—"}</div></td>
             <td class="colComment">
+              <div class="rowImageTools noPrint"><button type="button" class="btnAddImage">+ Image</button><input type="file" class="imageInput" accept="image/*" multiple hidden /></div>
               <div class="commentText">{title}</div>
               {thumbs}
               {render_entry_comment(r)}
@@ -2209,7 +2214,12 @@ body{{padding:14px 14px 14px 280px;}}
 .small{{font-size:12px}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
-@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none}}}}
+@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none;height:297mm;min-height:297mm;overflow:hidden}}}}
+body.printOptimized .reportBlocks{{gap:0!important}}
+body.printOptimized .zoneBlock{{margin:0!important}}
+body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
+body.printOptimized .reportHeader{{margin-bottom:4px!important}}
+body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 @media screen{{body{{background:#e5e7eb;}} .page{{box-shadow:0 14px 30px rgba(15,23,42,.16)}}}}
 .topPage{{transform:scale(var(--top-scale));transform-origin:top left}}
 @media print{{.topPage{{margin:0;}}}}
@@ -2353,11 +2363,11 @@ body{{padding:14px 14px 14px 280px;}}
 .crTable{{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid var(--border);margin-top:-1px;}}
 .crTable thead{{display:table-header-group}}
 .crTable tfoot{{display:table-footer-group}}
-.crTable th, .crTable td{{border:1px solid var(--border);padding:7px 8px;vertical-align:top;page-break-inside:avoid;break-inside:avoid;}}
+.crTable th, .crTable td{{border:1px solid var(--border);padding:6px 7px;vertical-align:top;page-break-inside:auto;break-inside:auto;}}
 .crTable tr{{page-break-inside:avoid;break-inside:avoid;}}
-.annexTable tr{{page-break-inside:avoid;break-inside:avoid;}}
+.annexTable tr{{page-break-inside:auto;break-inside:auto;}}
 .crTable th{{background:#1f4e4f;color:#fff;text-align:center;font-weight:900;font-size:11px;line-height:1.2;white-space:nowrap}}
-.crTable td{{font-size:11px;line-height:1.3;word-break:normal;overflow-wrap:break-word;hyphens:none}}
+.crTable td{{font-size:11px;line-height:1.24;word-break:normal;overflow-wrap:break-word;hyphens:none}}
 .crTable td.colDate, .crTable th.colDate{{padding:6px 4px}}
 
 .sessionSubRow td{{background:#ffffff;}}
@@ -2366,6 +2376,9 @@ body{{padding:14px 14px 14px 280px;}}
 .sessionSubRowCurrent td.colComment{{color:#1d4ed8;text-decoration:underline;text-underline-offset:2px;}}
 .colType{{text-align:center;font-weight:1000;white-space:nowrap;position:relative}}
 .colComment{{white-space:normal;position:relative}}
+.rowImageTools{{display:flex;justify-content:flex-end;margin-bottom:4px}}
+.btnAddImage{{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;cursor:pointer}}
+.btnAddImage:hover{{background:#f8fafc}}
 .colDate{{text-align:center;font-variant-numeric: tabular-nums;white-space:nowrap;position:relative}}
 .colLot{{text-align:center;white-space:nowrap;position:relative}}
 .colWho{{text-align:center;white-space:nowrap;position:relative}}
@@ -2377,18 +2390,41 @@ body{{padding:14px 14px 14px 280px;}}
 .colGrip{{position:absolute;top:0;right:-6px;width:12px;height:100%;cursor:col-resize}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
 
-@media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} }}
+@media print{{ .rowToggle{{display:none}} .noPrintRow{{display:none}} .editableCell{{background:transparent}} .rowImageTools{{display:none!important}} .thumbRemove{{display:none!important}} }}
+@media print{{ .zoneTitle{{break-after:avoid-page;page-break-after:avoid;break-inside:auto;page-break-inside:auto}} }}
+
 
 .crTable tr.rowMeeting td{{background:#eef8ff;}}
 .crTable tr.rowMeeting td.colType{{box-shadow:inset 4px 0 0 #2563eb;}}
 
-.thumbs{{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px}}
-.thumb{{height:90px;width:auto;border:1px solid var(--border);border-radius:8px;display:block}}
+.thumbs{{margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}}
+.thumb{{width:160px;height:auto;max-width:100%;border:1px solid var(--border);border-radius:8px;display:block;object-fit:cover;background:#fff}}
 .entryComment{{margin-top:8px;padding-left:12px;border-left:3px solid #e2e8f0}}
 .tagReminderGreen{{color:#16a34a;font-weight:900}}
-.thumbA{{display:inline-flex}}
-.commentText{{font-weight:400;line-height:1.25}}
+.thumbA{{display:inline-flex;cursor:grab}}
+.commentText{{font-weight:400;line-height:1.24;white-space:normal}}
 .tagReminder{{color:#b91c1c;font-weight:900}}
+.thumbAWrap{{position:relative;display:inline-flex;touch-action:none;max-width:100%;align-items:flex-start}}
+.thumbAWrap.dragging{{opacity:.7;z-index:5}}
+.thumbAWrap.resizing{{outline:2px solid #60a5fa;outline-offset:1px}}
+.thumbHandle{{position:absolute;right:4px;bottom:4px;width:14px;height:14px;border:2px solid rgba(15,23,42,.45);border-top:none;border-left:none;cursor:nwse-resize;background:rgba(255,255,255,.7)}}
+.thumbRemove{{position:absolute;top:2px;right:2px;width:18px;height:18px;border:none;border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-weight:900;line-height:18px;padding:0;cursor:pointer}}
+.thumbRemove:hover{{background:#dc2626}}
+.colComment br + br{{display:none}}
+.compactRow .colComment{{line-height:1.22}}
+.compactRow .colComment .entryComment{{margin-top:6px}}
+
+@media print{{
+  .page{{height:auto;min-height:0}}
+  .pageContent{{padding:8mm 7mm 30mm 7mm}}
+  .crTable th, .crTable td{{padding:5px 6px}}
+  .zoneTitle{{padding:5px 7px}}
+  .reportHeader{{margin-bottom:6px}}
+  .thumb{{height:auto;max-width:100%}}
+  .thumbHandle{{display:none}}
+  .thumbRemove{{display:none}}
+  .btnAddImage{{display:none}}
+}}
 .annexTable{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;border:1px solid var(--border)}}
 .annexTable thead{{display:table-header-group}}
 .annexTable th,.annexTable td{{border-bottom:1px solid var(--border);padding:8px 6px;text-align:left;vertical-align:top}}
@@ -2421,7 +2457,7 @@ body{{padding:14px 14px 14px 280px;}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;overflow:hidden;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
@@ -2617,7 +2653,9 @@ body{{padding:14px 14px 14px 280px;}}
 <script>{SYNC_EDITABLE_JS}</script>
 <script>{RANGE_PICKER_JS}</script>
 <script>{LAYOUT_CONTROLS_JS}</script>
+<script>{DRAGGABLE_IMAGES_JS}</script>
 <script>{PAGINATION_JS}</script>
+<script>{PRINT_OPTIMIZE_JS}</script>
 <script>{ROW_CONTROL_JS}</script>
 <script>{RESIZE_COLUMNS_JS}</script>
 <script>{RESIZE_TOP_JS}</script>
