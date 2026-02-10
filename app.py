@@ -1288,48 +1288,6 @@ PAGINATION_JS = r"""
     return window.matchMedia && window.matchMedia('print').matches;
   }
 
-  let printSnapshot = null;
-
-  function capturePrintSnapshot(){
-    const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    const firstBlocks = firstPage?.querySelector('.reportBlocks');
-    if(!container || !firstPage || !firstBlocks) return;
-    const pages = Array.from(container.querySelectorAll('.page--report'));
-    const blocks = [];
-    pages.forEach(page => {
-      const wrap = page.querySelector('.reportBlocks');
-      if(!wrap) return;
-      Array.from(wrap.children).forEach(node => blocks.push(node));
-    });
-    printSnapshot = {container, firstPage, firstBlocks, pages, blocks};
-  }
-
-  function preparePrintFlow(){
-    capturePrintSnapshot();
-    if(!printSnapshot) return;
-    const {firstBlocks, pages, blocks} = printSnapshot;
-    blocks.forEach(node => firstBlocks.appendChild(node));
-    pages.slice(1).forEach(page => page.remove());
-  }
-
-  function restoreAfterPrint(){
-    if(!printSnapshot) return;
-    const {container, firstPage, firstBlocks, blocks} = printSnapshot;
-    if(!container || !firstPage || !firstBlocks){
-      printSnapshot = null;
-      return;
-    }
-    blocks.forEach(node => firstBlocks.appendChild(node));
-    container.querySelectorAll('.page--report').forEach((page, idx) => {
-      if(idx > 0) page.remove();
-    });
-    printSnapshot = null;
-    if(window.repaginateReport){
-      window.repaginateReport();
-    }
-  }
-
   function updatePageNumbers(){
     if(isPrintMode()) return;
     const pages = Array.from(document.querySelectorAll('.page'));
@@ -1659,10 +1617,10 @@ PAGINATION_JS = r"""
     window.__repaginateTimer = setTimeout(paginate, 200);
   });
   window.addEventListener('beforeprint', () => {
-    preparePrintFlow();
+    return;
   });
   window.addEventListener('afterprint', () => {
-    restoreAfterPrint();
+    window.repaginateReport && window.repaginateReport();
   });
   window.addEventListener('DOMContentLoaded', updatePageNumbers);
 })();
@@ -2485,7 +2443,7 @@ html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1
 body{{padding:14px 14px 14px 280px;}}
 .wrap{{display:flex;flex-direction:column;gap:12px;align-items:center;}}
 .reportPages{{counter-reset:reportpage;}}
-.page{{width:210mm;position:relative;background:#fff;overflow:visible;break-after:page;page-break-after:always;}}
+.page{{width:210mm;height:297mm;min-height:297mm;position:relative;background:#fff;overflow:visible;break-after:page;page-break-after:always;}}
 .page:last-child{{break-after:auto;page-break-after:auto;}}
 .page--report{{counter-increment:reportpage;}}
 .pageContent{{padding:10mm 8mm 34mm 8mm;}}
@@ -2712,38 +2670,33 @@ body{{padding:14px 14px 14px 280px;}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
 @media print{{
-  @page{{size:A4;margin:28mm 10mm 26mm 10mm}}
+  @page{{size:A4;margin:10mm}}
   body{{padding:0!important;background:#fff}}
   .actions,.rangePanel{{display:none!important}}
-  .reportPages{{counter-reset:none}}
-  .page,
-  .page--report{{
-    width:auto!important;
-    height:auto!important;
-    min-height:0!important;
-    margin:0!important;
+  .page{{
+    width:190mm!important;
+    height:277mm!important;
+    min-height:277mm!important;
+    margin:0 auto!important;
     box-shadow:none!important;
-    overflow:visible!important;
-    break-after:auto!important;
-    page-break-after:auto!important;
+    overflow:hidden!important;
   }}
-  .page--report .pageContent{{padding:0!important}}
-  .page--report .reportTables{{margin:0!important}}
+  .page--cover .docFooter{{position:absolute!important;}}
   .page--report .reportHeader{{
     position:fixed!important;
-    top:-20mm;
-    left:0;
-    right:0;
+    top:10mm;
+    left:10mm;
+    right:10mm;
     margin:0!important;
-    padding:0 2mm 2mm 2mm;
     background:#fff;
     z-index:30;
   }}
+  .page--report .pageContent{{padding:12mm 8mm 34mm 8mm!important;}}
   .page--report .docFooter{{
     position:fixed!important;
-    left:0;
-    right:0;
-    bottom:-18mm;
+    left:10mm;
+    right:10mm;
+    bottom:10mm;
     margin:0!important;
     z-index:30;
   }}
