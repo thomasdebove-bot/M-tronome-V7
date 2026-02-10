@@ -484,6 +484,22 @@ def parse_image_urls_any(v) -> List[str]:
     return out
 
 
+def _format_entry_text_html(v) -> str:
+    """Normalize text for tasks/memos and preserve bullet-like line breaks in HTML."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    s = str(v)
+    if not s.strip() or s.strip().lower() == "nan":
+        return ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n[ \t]+", "\n", s)
+    s = re.sub(r"(?<!\n)\s*(•|●|◦|▪|‣|\*)\s+", r"\n\1 ", s)
+    s = re.sub(r"(?<!\n)\s-\s+(?=\S)", r"\n- ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return _escape(s.strip()).replace("\n", "<br>")
+
+
 def render_images_gallery(urls: List[str], print_mode: bool) -> str:
     if not urls:
         return ""
@@ -513,7 +529,7 @@ def render_task_comment(r) -> str:
         return ""
     author = _escape(r.get(E_COL_TASK_COMMENT_AUTHOR, ""))
     d = _fmt_date(_parse_date_any(r.get(E_COL_TASK_COMMENT_DATE)))
-    body = _escape(txt).replace("\n", "<br>")
+    body = _format_entry_text_html(txt)
     meta = " • ".join([x for x in [author, d] if x])
     return f"""
       <div class="topicComment">
@@ -533,7 +549,7 @@ def render_entry_comment(r) -> str:
     author = _escape(r.get(E_COL_TASK_COMMENT_AUTHOR, ""))
     d = _fmt_date(_parse_date_any(r.get(E_COL_TASK_COMMENT_DATE)))
     company = _escape(r.get(E_COL_COMPANY_TASK, ""))
-    body = _escape(txt).replace("\n", "<br>")
+    body = _format_entry_text_html(txt)
     meta = " • ".join([x for x in [author, company, d] if x])
     return f"""
       <div class="entryComment">
@@ -1272,6 +1288,71 @@ LAYOUT_CONTROLS_JS = r"""
 })();
 """
 
+
+DRAGGABLE_IMAGES_JS = r"""
+(function(){
+  function initGallery(gallery){
+    if(!gallery || gallery.dataset.dragReady === '1') return;
+    gallery.dataset.dragReady = '1';
+    let dragEl = null;
+    gallery.addEventListener('dragstart', (e) => {
+      const wrap = e.target.closest('.thumbAWrap');
+      if(!wrap) return;
+      dragEl = wrap;
+      wrap.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'thumb');
+    });
+    gallery.addEventListener('dragend', () => {
+      if(dragEl){ dragEl.classList.remove('dragging'); }
+      dragEl = null;
+    });
+    gallery.addEventListener('dragover', (e) => {
+      if(!dragEl) return;
+      e.preventDefault();
+      const over = e.target.closest('.thumbAWrap');
+      if(!over || over === dragEl) return;
+      const rect = over.getBoundingClientRect();
+      const before = e.clientX < (rect.left + rect.width / 2);
+      gallery.insertBefore(dragEl, before ? over : over.nextSibling);
+    });
+  }
+
+  window.enableDraggableThumbs = function(){
+    document.querySelectorAll('.thumbs').forEach(gallery => {
+      initGallery(gallery);
+      gallery.querySelectorAll('.thumbAWrap').forEach(wrap => {
+        wrap.setAttribute('draggable', 'true');
+      });
+    });
+  };
+
+  window.addEventListener('load', () => {
+    window.enableDraggableThumbs();
+  });
+})();
+"""
+
+PRINT_OPTIMIZE_JS = r"""
+(function(){
+  function optimizeWhitespaceForPrint(){
+    document.body.classList.add('printOptimized');
+    if(window.repaginateReport){
+      window.repaginateReport();
+    }
+  }
+  function restoreAfterPrint(){
+    document.body.classList.remove('printOptimized');
+    if(window.repaginateReport){
+      window.repaginateReport();
+    }
+  }
+
+  window.addEventListener('beforeprint', optimizeWhitespaceForPrint);
+  window.addEventListener('afterprint', restoreAfterPrint);
+})();
+"""
+
 PAGINATION_JS = r"""
 (function(){
   function px(value){
@@ -1896,7 +1977,7 @@ def render_cr(
 
     # Card renderer for tasks outside the meeting (rappels / à-suivre) — NO BADGES
     def render_task_card_from_row(r, tag: str, extra_class: str, img_col: Optional[str]) -> str:
-        title = _escape(r.get(E_COL_TITLE, ""))
+        title = _format_entry_text_html(r.get(E_COL_TITLE, ""))
         company = _escape(r.get(E_COL_COMPANY_TASK, ""))
         owner = _escape(r.get(E_COL_OWNER, ""))
         deadline = _fmt_date(_parse_date_any(r.get(E_COL_DEADLINE)))
@@ -1977,7 +2058,7 @@ def render_cr(
         thumbs = ""
         if img_urls:
             thumbs_imgs = "".join(
-                f"<a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a>"
+                f"<span class='thumbAWrap'><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><span class='thumbHandle' title='Déplacer'></span></span>"
                 for u in img_urls[:6]
             )
             thumbs = f"<div class='thumbs'>{thumbs_imgs}</div>"
@@ -1995,7 +2076,7 @@ def render_cr(
         safe_row_id = _escape(row_id) or _escape(str(r.get(E_COL_ID, "")))
         toggle_html = f"<input type='checkbox' class='rowToggle noPrint' data-target='{safe_row_id}' checked />"
         return f"""
-          <tr class="{row_cls}" data-row-id="{safe_row_id}">
+          <tr class="{row_cls} compactRow" data-row-id="{safe_row_id}" data-entry-type="{"task" if is_task else "memo"}">
             <td class="colType">{toggle_html}<div>{tag_html or "—"}</div></td>
             <td class="colComment">
               <div class="commentText">{title}</div>
@@ -2210,6 +2291,11 @@ body{{padding:14px 14px 14px 280px;}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
 @media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none}}}}
+body.printOptimized .reportBlocks{{gap:0!important}}
+body.printOptimized .zoneBlock{{margin:0!important}}
+body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
+body.printOptimized .reportHeader{{margin-bottom:4px!important}}
+body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 @media screen{{body{{background:#e5e7eb;}} .page{{box-shadow:0 14px 30px rgba(15,23,42,.16)}}}}
 .topPage{{transform:scale(var(--top-scale));transform-origin:top left}}
 @media print{{.topPage{{margin:0;}}}}
@@ -2353,11 +2439,11 @@ body{{padding:14px 14px 14px 280px;}}
 .crTable{{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid var(--border);margin-top:-1px;}}
 .crTable thead{{display:table-header-group}}
 .crTable tfoot{{display:table-footer-group}}
-.crTable th, .crTable td{{border:1px solid var(--border);padding:7px 8px;vertical-align:top;page-break-inside:avoid;break-inside:avoid;}}
+.crTable th, .crTable td{{border:1px solid var(--border);padding:6px 7px;vertical-align:top;page-break-inside:avoid;break-inside:avoid;}}
 .crTable tr{{page-break-inside:avoid;break-inside:avoid;}}
 .annexTable tr{{page-break-inside:avoid;break-inside:avoid;}}
 .crTable th{{background:#1f4e4f;color:#fff;text-align:center;font-weight:900;font-size:11px;line-height:1.2;white-space:nowrap}}
-.crTable td{{font-size:11px;line-height:1.3;word-break:normal;overflow-wrap:break-word;hyphens:none}}
+.crTable td{{font-size:11px;line-height:1.24;word-break:normal;overflow-wrap:break-word;hyphens:none}}
 .crTable td.colDate, .crTable th.colDate{{padding:6px 4px}}
 
 .sessionSubRow td{{background:#ffffff;}}
@@ -2382,13 +2468,29 @@ body{{padding:14px 14px 14px 280px;}}
 .crTable tr.rowMeeting td{{background:#eef8ff;}}
 .crTable tr.rowMeeting td.colType{{box-shadow:inset 4px 0 0 #2563eb;}}
 
-.thumbs{{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px}}
-.thumb{{height:90px;width:auto;border:1px solid var(--border);border-radius:8px;display:block}}
+.thumbs{{margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}}
+.thumb{{height:90px;width:auto;max-width:160px;border:1px solid var(--border);border-radius:8px;display:block;object-fit:cover;background:#fff}}
 .entryComment{{margin-top:8px;padding-left:12px;border-left:3px solid #e2e8f0}}
 .tagReminderGreen{{color:#16a34a;font-weight:900}}
-.thumbA{{display:inline-flex}}
-.commentText{{font-weight:400;line-height:1.25}}
+.thumbA{{display:inline-flex;cursor:grab}}
+.commentText{{font-weight:400;line-height:1.24;white-space:normal}}
 .tagReminder{{color:#b91c1c;font-weight:900}}
+.thumbAWrap{{position:relative;display:inline-flex;touch-action:none}}
+.thumbAWrap.dragging{{opacity:.7;z-index:5}}
+.thumbHandle{{position:absolute;right:4px;bottom:4px;width:14px;height:14px;border:2px solid rgba(15,23,42,.45);border-top:none;border-left:none;pointer-events:none}}
+.colComment br + br{{display:none}}
+.compactRow .colComment{{line-height:1.22}}
+.compactRow .colComment .entryComment{{margin-top:6px}}
+
+@media print{{
+  .page{{height:auto;min-height:0}}
+  .pageContent{{padding:8mm 7mm 30mm 7mm}}
+  .crTable th, .crTable td{{padding:5px 6px}}
+  .zoneTitle{{padding:5px 7px}}
+  .reportHeader{{margin-bottom:6px}}
+  .thumb{{height:72px;max-width:130px}}
+  .thumbHandle{{display:none}}
+}}
 .annexTable{{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;border:1px solid var(--border)}}
 .annexTable thead{{display:table-header-group}}
 .annexTable th,.annexTable td{{border-bottom:1px solid var(--border);padding:8px 6px;text-align:left;vertical-align:top}}
@@ -2617,7 +2719,9 @@ body{{padding:14px 14px 14px 280px;}}
 <script>{SYNC_EDITABLE_JS}</script>
 <script>{RANGE_PICKER_JS}</script>
 <script>{LAYOUT_CONTROLS_JS}</script>
+<script>{DRAGGABLE_IMAGES_JS}</script>
 <script>{PAGINATION_JS}</script>
+<script>{PRINT_OPTIMIZE_JS}</script>
 <script>{ROW_CONTROL_JS}</script>
 <script>{RESIZE_COLUMNS_JS}</script>
 <script>{RESIZE_TOP_JS}</script>
