@@ -2214,8 +2214,7 @@ body{{padding:14px 14px 14px 280px;}}
 .small{{font-size:12px}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
-@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none;height:auto;min-height:0;overflow:visible}}}}
-@media print{{ .docFooter,.coverHero,.banner,.imgThumb,.thumbAWrap{{overflow:visible!important}} }}
+@media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none;height:297mm;min-height:297mm;overflow:hidden}}}}
 body.printOptimized .reportBlocks{{gap:0!important}}
 body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
@@ -2359,7 +2358,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .zoneBlock{{margin:0}}
 .zoneBlock + .zoneBlock{{margin-top:0}}
 .reportBlocks{{display:flex;flex-direction:column;gap:0}}
-.reportBlock{{break-inside:auto;page-break-inside:auto}}
+.reportBlock{{break-inside:avoid;page-break-inside:avoid}}
 .reportNote{{margin-top:12px}}
 .crTable{{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid var(--border);margin-top:-1px;}}
 .crTable thead{{display:table-header-group}}
@@ -2458,7 +2457,7 @@ body.printOptimized .thumb{{height:auto!important;max-width:100%!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:auto;min-height:0;margin:0;box-shadow:none;overflow:visible;break-after:auto;page-break-after:auto;}} .reportBlock,.zoneBlock,.section{{break-inside:auto;page-break-inside:auto;}} .page--cover{{break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;overflow:hidden;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
