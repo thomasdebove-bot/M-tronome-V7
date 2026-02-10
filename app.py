@@ -1590,6 +1590,43 @@ DRAGGABLE_IMAGES_JS = r"""
 """
 
 
+CONSTRAINTS_TOGGLES_JS = r"""
+(function(){
+  const MAP = [
+    {id:'toggleReserveFooter', cls:'constraint-no-footer-reserve', inverse:true},
+    {id:'toggleReserveHeader', cls:'constraint-no-header-reserve', inverse:true},
+    {id:'toggleReservePresence', cls:'constraint-no-presence-reserve', inverse:true},
+    {id:'toggleAvoidSessionSplit', cls:'constraint-allow-session-split', inverse:false},
+    {id:'toggleAvoidZoneTitleBreak', cls:'constraint-allow-zone-title-break', inverse:false},
+    {id:'toggleStrictA4Screen', cls:'constraint-free-page-height', inverse:true},
+    {id:'toggleShowGuides', cls:'constraint-hide-guides', inverse:true},
+    {id:'toggleShowSpacers', cls:'constraint-hide-spacers', inverse:true},
+  ];
+
+  function applyToggle(t){
+    const el = document.getElementById(t.id);
+    if(!el) return;
+    const activeClass = t.inverse ? !el.checked : el.checked;
+    document.body.classList.toggle(t.cls, !!activeClass);
+  }
+
+  function refresh(){
+    MAP.forEach(applyToggle);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  window.addEventListener('load', () => {
+    MAP.forEach(t => {
+      const el = document.getElementById(t.id);
+      if(!el) return;
+      el.addEventListener('change', refresh);
+    });
+    refresh();
+  });
+})();
+"""
+
+
 PRINT_OPTIMIZE_JS = r"""
 (function(){
   function optimizeWhitespaceForPrint(){
@@ -1626,9 +1663,10 @@ PAGINATION_JS = r"""
     if(!pageContent) return pageRect.height;
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
-    if(header){ available -= header.getBoundingClientRect().height; }
-    if(presence){ available -= presence.getBoundingClientRect().height; }
+    const body = document.body;
+    if(footer && !body.classList.contains('constraint-no-footer-reserve')){ available -= footer.getBoundingClientRect().height; }
+    if(header && !body.classList.contains('constraint-no-header-reserve')){ available -= header.getBoundingClientRect().height; }
+    if(presence && !body.classList.contains('constraint-no-presence-reserve')){ available -= presence.getBoundingClientRect().height; }
     return available;
   }
 
@@ -1687,10 +1725,11 @@ PAGINATION_JS = r"""
       endIndex += 1;
       if(endIndex === startIndex + 1 && height > maxHeight){ break; }
     }
-    if(endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
+    const avoidSessionSplit = !document.body.classList.contains('constraint-allow-session-split');
+    if(avoidSessionSplit && endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
       endIndex -= 1;
     }
-    if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
+    if(avoidSessionSplit && endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
       endIndex = Math.min(startIndex + 2, total);
     }
     height = titleHeight + tableOverhead;
@@ -2226,6 +2265,18 @@ def render_cr(
         <label>Gauche (mm)<input id="marginLeftMm" type="number" step="0.5" value="8" /></label>
         <button class="btn secondary" type="button" id="btnApplyMargins">Appliquer marges</button>
       </div>
+
+      <div class="constraintsPanel noPrint"> 
+        <div class="marginPanelTitle">Contraintes pagination</div>
+        <label><input id="toggleReserveFooter" type="checkbox" checked /> Réserver footer</label>
+        <label><input id="toggleReserveHeader" type="checkbox" checked /> Réserver header</label>
+        <label><input id="toggleReservePresence" type="checkbox" checked /> Réserver présence page 2</label>
+        <label><input id="toggleAvoidSessionSplit" type="checkbox" checked /> Éviter coupure sous-session</label>
+        <label><input id="toggleAvoidZoneTitleBreak" type="checkbox" checked /> Éviter coupure titre zone</label>
+        <label><input id="toggleStrictA4Screen" type="checkbox" checked /> Hauteur A4 stricte (écran)</label>
+        <label><input id="toggleShowGuides" type="checkbox" checked /> Afficher guides rouges</label>
+        <label><input id="toggleShowSpacers" type="checkbox" checked /> Afficher espaces rouges</label>
+      </div>
       <div class="rangePanel noPrint" id="rangePanel" style="display:{'flex' if range_active else 'none'}">
         <div class="rangeFields">
           <div class="rangeField">
@@ -2652,6 +2703,11 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .layoutSpacerGrip{{height:12px;background:repeating-linear-gradient(90deg, rgba(127,29,29,.45), rgba(127,29,29,.45) 4px, transparent 4px, transparent 8px);cursor:ns-resize;opacity:.8}}
 .layoutSpacer.isResizing{{outline:2px solid #ef4444;outline-offset:1px}}
 .layoutSpacer.draggingSpacer{{opacity:.6}}
+body.constraint-hide-spacers .layoutSpacer{{display:none!important}}
+body.constraint-hide-guides .pageContent{{outline:none!important}}
+body.constraint-free-page-height .page{{height:auto;min-height:0}}
+body.constraint-allow-zone-title-break .zoneTitle{{break-after:auto;page-break-after:auto}}
+body.constraint-allow-session-split .sessionSubRow{{break-inside:auto;page-break-inside:auto}}
 .zoneBlock.pageBreakBefore{{page-break-before:always}}
 .u-page-break{{break-before:page;page-break-before:always;}}
 .u-avoid-break{{break-inside:avoid;page-break-inside:avoid;}}
@@ -2695,6 +2751,9 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .marginPanelTitle{{font-weight:900}}
 .marginPanel label{{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;font-weight:700}}
 .marginPanel input{{width:84px;padding:5px 6px;border:1px solid var(--border);border-radius:8px}}
+.constraintsPanel{{position:fixed;top:290px;right:14px;z-index:10001;width:220px;border:1px solid var(--border);border-radius:14px;padding:10px;background:#fff;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(2,6,23,.12)}}
+.constraintsPanel label{{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:700}}
+.constraintsPanel input{{accent-color:#0f172a}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
@@ -2820,7 +2879,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel,.marginPanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel,.marginPanel,.constraintsPanel{{display:none!important}} .page{{width:210mm;height:297mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
@@ -3022,6 +3081,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 <script>{ROW_CONTROL_JS}</script>
 <script>{RESIZE_COLUMNS_JS}</script>
 <script>{RESIZE_TOP_JS}</script>
+<script>{CONSTRAINTS_TOGGLES_JS}</script>
 </body>
 </html>
 """
