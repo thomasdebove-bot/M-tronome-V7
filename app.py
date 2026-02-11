@@ -682,6 +682,16 @@ def reminder_level(deadline: Optional[date], completed: bool, ref_date: date) ->
     return ((days_late - 1) // 7) + 1
 
 
+def reminder_level_at_done(deadline: Optional[date], done_date: Optional[date]) -> Optional[int]:
+    """Rappel historique à la clôture: retard constaté à la date de fin."""
+    if not deadline or not done_date:
+        return None
+    days_late = (done_date - deadline).days
+    if days_late <= 0:
+        return None
+    return ((days_late - 1) // 7) + 1
+
+
 def _explode_areas(df: pd.DataFrame) -> pd.DataFrame:
     if E_COL_AREAS in df.columns:
         df["__area__"] = df[E_COL_AREAS].fillna("").astype(str).str.strip()
@@ -2096,25 +2106,39 @@ def render_cr(
     )
 
     closed_recent_df = pd.DataFrame()
-    if not edf.empty:
-        edf2 = edf.copy()
+    project_history = get_entries().copy()
+    project_history = project_history.loc[
+        project_history[E_COL_PROJECT_TITLE].fillna("").astype(str).str.strip() == project
+    ].copy()
+    if not project_history.empty:
+        edf2 = project_history.copy()
         edf2["__is_task__"] = _series(edf2, E_COL_IS_TASK, False).apply(_bool_true)
         edf2["__completed__"] = _series(edf2, E_COL_COMPLETED, False).apply(_bool_true)
         edf2["__deadline__"] = _series(edf2, E_COL_DEADLINE, None).apply(_parse_date_any)
-        edf2["__done__"] = pd.to_datetime(_series(edf2, E_COL_COMPLETED_END, None), errors="coerce").dt.date
+        edf2["__done__"] = _series(edf2, E_COL_COMPLETED_END, None).apply(_parse_date_any)
+        edf2.loc[edf2["__done__"].notna(), "__completed__"] = True
         edf2 = edf2.loc[(edf2["__is_task__"] == True) & (edf2["__completed__"] == True)].copy()
         edf2 = edf2.loc[edf2["__done__"].notna()].copy()
         days_since_done = pd.to_datetime(ref_date) - pd.to_datetime(edf2["__done__"])
         edf2 = edf2.loc[(days_since_done.dt.days >= 0) & (days_since_done.dt.days <= 14)].copy()
-        edf2["__reminder__"] = None
+        edf2["__reminder__"] = edf2.apply(lambda r: reminder_level_at_done(r.get("__deadline__"), r.get("__done__")), axis=1)
         edf2 = _explode_areas(edf2)
         closed_recent_df = edf2
+
+    closed_recent_ids: set[str] = set()
+    if not closed_recent_df.empty:
+        closed_recent_ids = set(_series(closed_recent_df, E_COL_ID, "").fillna("").astype(str).str.strip())
+        closed_recent_ids.discard("")
 
     rem_company = reminders_by_company(rem_df)[:12]
     areas = group_meeting_by_area(edf)
 
     # ensure zones that exist only in reminders/follow-ups are also shown
-    extra_zones = set(rem_df["__area_list__"].astype(str).tolist()) | set(fol_df["__area_list__"].astype(str).tolist())
+    extra_zones = (
+        set(rem_df["__area_list__"].astype(str).tolist())
+        | set(fol_df["__area_list__"].astype(str).tolist())
+        | set(closed_recent_df["__area_list__"].astype(str).tolist())
+    )
     zone_names = [a for a, _ in areas]
     for z in sorted(extra_zones):
         if z not in zone_names:
@@ -2433,39 +2457,56 @@ def render_cr(
         f"En séance du {(meet_date or ref_date).strftime('%d/%m/%Y')} :" if (meet_date or ref_date) else ""
     )
 
+    def _entry_id_value(r) -> str:
+        return str(r.get(E_COL_ID, "")).strip()
+
+    def _is_completed_recent_row(r) -> bool:
+        rid = _entry_id_value(r)
+        return bool(rid and rid in closed_recent_ids)
+
     for area_name, g in areas:
         grouped_rows: List[Tuple[Optional[date], str, str]] = []
+        seen_entry_ids: set[str] = set()
 
         rem_zone = rem_df.loc[rem_df["__area_list__"].astype(str) == str(area_name)].copy()
         if not rem_zone.empty:
             for idx, r in rem_zone.iterrows():
+                rid = _entry_id_value(r)
                 row_html = render_task_row_tr(
                     r,
                     f"Rappel {int(r.get('__reminder__') or 1)}",
                     img_col=img_col_rem,
                     is_meeting=False,
+                    completed_recent=_is_completed_recent_row(r),
                     row_id=f"rem-{area_name}-{idx}",
                 )
                 sort_d, label = _meeting_sort_and_label(r)
                 grouped_rows.append((sort_d, label, row_html))
+                if rid:
+                    seen_entry_ids.add(rid)
 
         fol_zone = fol_df.loc[fol_df["__area_list__"].astype(str) == str(area_name)].copy()
         if not fol_zone.empty:
             for idx, r in fol_zone.iterrows():
+                rid = _entry_id_value(r)
                 row_html = render_task_row_tr(
                     r,
                     "Tâche",
                     img_col=img_col_fol,
                     is_meeting=False,
+                    completed_recent=_is_completed_recent_row(r),
                     row_id=f"fol-{area_name}-{idx}",
                 )
                 sort_d, label = _meeting_sort_and_label(r)
                 grouped_rows.append((sort_d, label, row_html))
+                if rid:
+                    seen_entry_ids.add(rid)
 
         if pinned_set and (not pinned_df.empty):
             pin_zone = pinned_df.loc[pinned_df["__area_list__"].astype(str) == str(area_name)].copy()
             if not pin_zone.empty:
                 for idx, r in pin_zone.iterrows():
+                    rid = _entry_id_value(r)
                     row_html = render_task_row_tr(
                         r,
                         "Mémo",
@@ -2475,10 +2516,13 @@ def render_cr(
                     )
                     sort_d, label = _meeting_sort_and_label(r)
                     grouped_rows.append((sort_d, label, row_html))
+                    if rid:
+                        seen_entry_ids.add(rid)
 
         if not g.empty:
             g_view = g.copy().sort_values(by=E_COL_CREATED, na_position="last")
             for idx, r in g_view.iterrows():
+                rid = _entry_id_value(r)
                 tag = "Tâche" if _bool_true(r.get(E_COL_IS_TASK)) else "Mémo"
                 is_meeting_entry = str(r.get(E_COL_MEETING_ID, "")).strip() == str(meeting_id)
                 row_html = render_task_row_tr(
@@ -2486,10 +2530,13 @@ def render_cr(
                     tag,
                     img_col=img_col_meeting,
                     is_meeting=is_meeting_entry,
+                    completed_recent=_is_completed_recent_row(r),
                     row_id=f"meet-{area_name}-{idx}",
                 )
                 sort_d, label = _meeting_sort_and_label(r)
                 grouped_rows.append((sort_d, label, row_html))
+                if rid:
+                    seen_entry_ids.add(rid)
 
         closed_zone = (
             closed_recent_df.loc[closed_recent_df["__area_list__"].astype(str) == str(area_name)].copy()
@@ -2498,6 +2545,9 @@ def render_cr(
         )
         if not closed_zone.empty:
             for idx, r in closed_zone.iterrows():
+                rid = _entry_id_value(r)
+                if rid and rid in seen_entry_ids:
+                    continue
                 lvl = r.get("__reminder__")
                 tag = f"Rappel {int(lvl)}" if pd.notna(lvl) else "Tâche"
                 row_html = render_task_row_tr(
@@ -2511,6 +2561,8 @@ def render_cr(
                 )
                 sort_d, label = _meeting_sort_and_label(r)
                 grouped_rows.append((sort_d, label, row_html))
+                if rid:
+                    seen_entry_ids.add(rid)
 
         grouped_rows.sort(key=lambda item: (item[0] is None, item[0] or date.max, item[1]))
         rows_parts: List[str] = []
