@@ -1365,9 +1365,29 @@ CONSTRAINT_TOGGLES_JS = r"""
     });
   });
 
+  function updateFooterReserveFactor(){
+    const input = document.getElementById('footerReserveFactor');
+    const value = document.getElementById('footerReserveFactorValue');
+    if(!input || !value) return;
+    const pct = Math.max(0, Math.min(150, parseFloat(input.value || '100')));
+    const factor = pct / 100;
+    value.textContent = `${Math.round(pct)} %`;
+    root.style.setProperty('--footer-reserve-factor', factor.toFixed(2));
+    try{ localStorage.setItem('tempo.footer.reserve.factor.v1', String(Math.round(pct))); }catch(_){ }
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
   panel.querySelectorAll('[data-print-margin]').forEach(input => {
     input.addEventListener('input', updatePrintMargins);
   });
+
+  const footerReserveInput = document.getElementById('footerReserveFactor');
+  if(footerReserveInput){
+    let savedPct = null;
+    try{ savedPct = localStorage.getItem('tempo.footer.reserve.factor.v1'); }catch(_){ }
+    if(savedPct !== null && savedPct !== ''){ footerReserveInput.value = savedPct; }
+    footerReserveInput.addEventListener('input', updateFooterReserveFactor);
+  }
 
   document.getElementById('btnConstraints')?.addEventListener('click', () => {
     panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
@@ -1375,6 +1395,7 @@ CONSTRAINT_TOGGLES_JS = r"""
 
   applyAll(state);
   updatePrintMargins();
+  updateFooterReserveFactor();
 })();
 """
 
@@ -1595,7 +1616,10 @@ PAGINATION_JS = r"""
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
     const reserveFooter = !document.body.classList.contains('constraint-off-footerReserve');
-    if(reserveFooter && footer){ available -= footer.getBoundingClientRect().height; }
+    const rootStyles = getComputedStyle(document.documentElement);
+    const reserveFactorRaw = parseFloat((rootStyles.getPropertyValue('--footer-reserve-factor') || '1').trim());
+    const reserveFactor = Number.isNaN(reserveFactorRaw) ? 1 : reserveFactorRaw;
+    if(reserveFooter && footer){ available -= (footer.getBoundingClientRect().height * reserveFactor); }
     if(header){ available -= header.getBoundingClientRect().height; }
     if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
     return available;
@@ -2211,6 +2235,10 @@ def render_cr(
           <label><input type="checkbox" data-constraint="bodyOffset" checked /> Décalage du body (panneau d'actions à gauche)</label>
           <label><input type="checkbox" data-constraint="pagePadding" checked /> Padding interne de la page</label>
           <label><input type="checkbox" data-constraint="footerReserve" checked /> Réserver l'espace avant footer (anti-chevauchement)</label>
+          <label class="constraintSubControl">Niveau de réserve footer
+            <input type="range" min="0" max="150" step="5" value="100" id="footerReserveFactor" />
+            <span id="footerReserveFactorValue">100 %</span>
+          </label>
           <label><input type="checkbox" data-constraint="tableFixed" checked /> Colonnes de tableau en layout fixe</label>
           <label><input type="checkbox" data-constraint="printHideUi" checked /> Masquer les outils UI à l'impression</label>
           <label><input type="checkbox" data-constraint="printStickyHeader" checked /> Header sticky en impression</label>
@@ -2533,6 +2561,7 @@ def render_cr(
   --a4-padding-x:6mm;
   --kpi-cols:4;
   --top-scale:1;
+  --footer-reserve-factor:1;
 }}
 *{{box-sizing:border-box}}
 html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
@@ -2678,6 +2707,8 @@ body.printPreviewMode .noPrintRow{{display:none!important}}
 .panelTitle{{font-weight:900;font-size:13px}}
 .constraintList{{display:grid;grid-template-columns:1fr;gap:6px}}
 .constraintList label{{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.25}}
+.constraintList label.constraintSubControl{{display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:8px;margin-left:22px}}
+.constraintList label.constraintSubControl input[type="range"]{{width:100%}}
 .printMarginControls{{display:grid;grid-template-columns:1fr;gap:8px}}
 .printMarginControls label{{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:8px;font-size:12px}}
 .printMarginControls input[type="range"]{{width:100%}}
