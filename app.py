@@ -2829,7 +2829,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 .footLeft{{justify-self:start}}
 .footCenter{{text-align:center;justify-self:center}}
 .footRight{{justify-self:end;width:120px;display:flex;justify-content:flex-end}}
-.pageNum{{font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:20px;font-weight:900;color:#fff;line-height:1;letter-spacing:.3px;padding-right:10px;padding-bottom:2px}}
+.pageNum{{font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,.82);line-height:1;letter-spacing:.2px;padding-right:14px;padding-bottom:6px}}
 .tempoLegal{{font-family:"Arial Nova Cond Light","Arial Narrow",Arial,sans-serif;font-size:10px;line-height:1.3;color:#6b7280;font-weight:600}}
 .footImg{{display:block;max-height:32px;width:auto}}
 .footMark{{max-height:48px}}
