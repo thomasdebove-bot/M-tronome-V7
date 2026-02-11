@@ -1253,6 +1253,41 @@ document.addEventListener('click', (e) => {
 });
 """
 
+PRINT_PREVIEW_TOGGLE_JS = r"""
+(function(){
+  const btn = document.getElementById('btnPrintPreview');
+  if(!btn) return;
+  const STORAGE_KEY = 'tempo.print.preview.enabled.v1';
+
+  function loadState(){
+    try{ return localStorage.getItem(STORAGE_KEY) === '1'; }
+    catch(_){ return false; }
+  }
+
+  function saveState(v){
+    try{ localStorage.setItem(STORAGE_KEY, v ? '1' : '0'); }
+    catch(_){ }
+  }
+
+  function apply(enabled){
+    document.body.classList.toggle('printPreviewMode', enabled);
+    document.body.classList.toggle('printOptimized', enabled);
+    btn.textContent = enabled ? 'Aperçu impression : ON' : 'Aperçu impression : OFF';
+    btn.classList.toggle('active', enabled);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  let enabled = loadState();
+  apply(enabled);
+
+  btn.addEventListener('click', () => {
+    enabled = !enabled;
+    saveState(enabled);
+    apply(enabled);
+  });
+})();
+"""
+
 CONSTRAINT_TOGGLES_JS = r"""
 (function(){
   const panel = document.getElementById('constraintsPanel');
@@ -1522,6 +1557,7 @@ PRINT_OPTIMIZE_JS = r"""
 (function(){
   function optimizeWhitespaceForPrint(){
     if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
+    if(document.body.classList.contains('printPreviewMode')){ return; }
     document.body.classList.add('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
@@ -1529,6 +1565,7 @@ PRINT_OPTIMIZE_JS = r"""
   }
   function restoreAfterPrint(){
     if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
+    if(document.body.classList.contains('printPreviewMode')){ return; }
     document.body.classList.remove('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
@@ -2137,6 +2174,7 @@ def render_cr(
         <button class="btn secondary editCompact" id="btnAnalysis" type="button">Analyse</button>
         <button class="btn secondary editCompact" id="btnRange" type="button" onclick="toggleRangePanel()">Choisir une période</button>
         <button class="btn secondary editCompact" id="btnConstraints" type="button">Contraintes HTML / impression</button>
+        <button class="btn secondary editCompact" id="btnPrintPreview" type="button">Aperçu impression : OFF</button>
         <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
           <option value="">Lignes masquées…</option>
         </select>
@@ -2511,6 +2549,14 @@ body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
 body.printOptimized .reportHeader{{margin-bottom:4px!important}}
 body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
+body.printPreviewMode .rowToggle,
+body.printPreviewMode .rowImageTools,
+body.printPreviewMode .thumbRemove,
+body.printPreviewMode .btnAddMemo,
+body.printPreviewMode .colGrip{{display:none!important}}
+body.printPreviewMode .editableCell{{background:transparent!important;box-shadow:none!important}}
+body.printPreviewMode .editableCell:focus{{box-shadow:none!important}}
+body.printPreviewMode .noPrintRow{{display:none!important}}
 @media screen{{body{{background:#e5e7eb;}} .page{{box-shadow:0 14px 30px rgba(15,23,42,.16)}}}}
 .topPage{{transform:scale(var(--top-scale));transform-origin:top left}}
 @media print{{.topPage{{margin:0;}}}}
@@ -2623,6 +2669,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .actions .btn,.actions .hiddenRowsSelect{{width:100%}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--accent);color:#fff;font-weight:950;cursor:pointer;text-decoration:none}}
 .btn.secondary{{background:#fff;color:var(--text);font-weight:900}}
+#btnPrintPreview.active{{background:#0f172a;color:#fff;border-color:#0f172a}}
 .rangePanel{{position:fixed;top:14px;left:14px;z-index:10001;width:248px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
 .constraintsPanel{{position:fixed;top:14px;left:276px;z-index:10001;width:420px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
 .panelTitle{{font-weight:900;font-size:13px}}
@@ -2962,6 +3009,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 <script>{ANALYSIS_MODAL_JS}</script>
 <script>{SYNC_EDITABLE_JS}</script>
 <script>{RANGE_PICKER_JS}</script>
+<script>{PRINT_PREVIEW_TOGGLE_JS}</script>
 <script>{CONSTRAINT_TOGGLES_JS}</script>
 <script>{LAYOUT_CONTROLS_JS}</script>
 <script>{DRAGGABLE_IMAGES_JS}</script>
