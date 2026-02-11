@@ -2817,8 +2817,10 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 .editableCell{{background:#fff7ed;outline:none}}
 .editableCell:focus{{box-shadow:inset 0 0 0 2px #fb923c}}
 .noPrintRow{{opacity:.4}}
-.rowDoneRecent td:first-child{{border-left:6px solid rgba(34,197,94,.35)!important}}
-.rowDoneRecent td{{background-image:linear-gradient(90deg, rgba(34,197,94,.08), rgba(34,197,94,0) 28px)}}
+.rowDoneRecent td{{background:none!important}}
+.crTable tr.rowDoneRecent td.colType{{box-shadow:inset 4px 0 0 #16a34a;}}
+.crTable tr.rowDoneRecent td.colType div{{color:#15803d;font-weight:900;}}
+.crTable tr.rowDoneRecent td.colComment .commentText{{color:#15803d;}}
 .rowHidden{{display:none!important}}
 .colGrip{{position:absolute;top:0;right:-6px;width:12px;height:100%;cursor:col-resize}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
