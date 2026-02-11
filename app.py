@@ -2820,7 +2820,6 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 .rowDoneRecent td{{background:none!important}}
 .crTable tr.rowDoneRecent td.colType{{box-shadow:inset 4px 0 0 #16a34a;}}
 .crTable tr.rowDoneRecent td.colType div{{color:#15803d;font-weight:900;}}
-.crTable tr.rowDoneRecent td.colComment .commentText{{color:#15803d;}}
 .rowHidden{{display:none!important}}
 .colGrip{{position:absolute;top:0;right:-6px;width:12px;height:100%;cursor:col-resize}}
 .colGrip::after{{content:"";position:absolute;top:3px;bottom:3px;left:5px;width:2px;background:#cbd5f5;border-radius:2px;opacity:.7}}
