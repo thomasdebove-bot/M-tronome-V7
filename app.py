@@ -1253,6 +1253,130 @@ document.addEventListener('click', (e) => {
 });
 """
 
+PRINT_PREVIEW_TOGGLE_JS = r"""
+(function(){
+  const btn = document.getElementById('btnPrintPreview');
+  if(!btn) return;
+  const STORAGE_KEY = 'tempo.print.preview.enabled.v1';
+
+  function loadState(){
+    try{ return localStorage.getItem(STORAGE_KEY) === '1'; }
+    catch(_){ return false; }
+  }
+
+  function saveState(v){
+    try{ localStorage.setItem(STORAGE_KEY, v ? '1' : '0'); }
+    catch(_){ }
+  }
+
+  function apply(enabled){
+    document.body.classList.toggle('printPreviewMode', enabled);
+    document.body.classList.toggle('printOptimized', enabled);
+    btn.textContent = enabled ? 'Aperçu impression : ON' : 'Aperçu impression : OFF';
+    btn.classList.toggle('active', enabled);
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  let enabled = loadState();
+  apply(enabled);
+
+  btn.addEventListener('click', () => {
+    enabled = !enabled;
+    saveState(enabled);
+    apply(enabled);
+  });
+})();
+"""
+
+CONSTRAINT_TOGGLES_JS = r"""
+(function(){
+  const panel = document.getElementById('constraintsPanel');
+  if(!panel) return;
+  const root = document.documentElement;
+  const body = document.body;
+  const STORAGE_KEY = 'tempo.constraint.toggles.v1';
+
+  const defaultState = {
+    fixedA4: true,
+    fixedPageHeight: true,
+    pageBreaks: true,
+    bodyOffset: true,
+    pagePadding: true,
+    footerReserve: true,
+    tableFixed: true,
+    printHideUi: true,
+    printStickyHeader: true,
+    printCompactRows: true,
+    printAvoidSplitRows: true,
+    keepSessionHeaderWithNext: true,
+    printAutoOptimize: true,
+    topScale: true,
+  };
+
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {...defaultState, ...parsed};
+    }catch(_){
+      return {...defaultState};
+    }
+  }
+
+  function saveState(state){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function applyConstraint(name, active){
+    body.classList.toggle(`constraint-off-${name}`, !active);
+  }
+
+  function applyAll(state){
+    Object.entries(state).forEach(([k, v]) => applyConstraint(k, !!v));
+  }
+
+  const state = loadState();
+  panel.querySelectorAll('[data-constraint]').forEach(input => {
+    const name = input.getAttribute('data-constraint');
+    if(!(name in state)) return;
+    input.checked = !!state[name];
+    input.addEventListener('change', () => {
+      state[name] = !!input.checked;
+      applyConstraint(name, state[name]);
+      saveState(state);
+      if(window.repaginateReport){ window.repaginateReport(); }
+    });
+  });
+
+  function updateFooterReserveFactor(){
+    const input = document.getElementById('footerReserveFactor');
+    const value = document.getElementById('footerReserveFactorValue');
+    if(!input || !value) return;
+    const pct = Math.max(-100, Math.min(150, parseFloat(input.value || '100')));
+    const factor = pct / 100;
+    value.textContent = `${Math.round(pct)} %`;
+    root.style.setProperty('--footer-reserve-factor', factor.toFixed(2));
+    try{ localStorage.setItem('tempo.footer.reserve.factor.v1', String(Math.round(pct))); }catch(_){ }
+    if(window.repaginateReport){ window.repaginateReport(); }
+  }
+
+  const footerReserveInput = document.getElementById('footerReserveFactor');
+  if(footerReserveInput){
+    let savedPct = null;
+    try{ savedPct = localStorage.getItem('tempo.footer.reserve.factor.v1'); }catch(_){ }
+    if(savedPct !== null && savedPct !== ''){ footerReserveInput.value = savedPct; }
+    footerReserveInput.addEventListener('input', updateFooterReserveFactor);
+  }
+
+  document.getElementById('btnConstraints')?.addEventListener('click', () => {
+    panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+  });
+
+  applyAll(state);
+  updateFooterReserveFactor();
+})();
+"""
+
 LAYOUT_CONTROLS_JS = r"""
 (function(){
   function closestZone(el){ return el.closest('.zoneBlock'); }
@@ -1432,12 +1556,16 @@ DRAGGABLE_IMAGES_JS = r"""
 PRINT_OPTIMIZE_JS = r"""
 (function(){
   function optimizeWhitespaceForPrint(){
+    if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
+    if(document.body.classList.contains('printPreviewMode')){ return; }
     document.body.classList.add('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
     }
   }
   function restoreAfterPrint(){
+    if(document.body.classList.contains('constraint-off-printAutoOptimize')){ return; }
+    if(document.body.classList.contains('printPreviewMode')){ return; }
     document.body.classList.remove('printOptimized');
     if(window.repaginateReport){
       window.repaginateReport();
@@ -1465,7 +1593,11 @@ PAGINATION_JS = r"""
     if(!pageContent) return pageRect.height;
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
+    const reserveFooter = !document.body.classList.contains('constraint-off-footerReserve');
+    const rootStyles = getComputedStyle(document.documentElement);
+    const reserveFactorRaw = parseFloat((rootStyles.getPropertyValue('--footer-reserve-factor') || '1').trim());
+    const reserveFactor = Number.isNaN(reserveFactorRaw) ? 1 : reserveFactorRaw;
+    if(reserveFooter && footer){ available -= (footer.getBoundingClientRect().height * reserveFactor); }
     if(header){ available -= header.getBoundingClientRect().height; }
     if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
     return available;
@@ -1531,8 +1663,11 @@ PAGINATION_JS = r"""
       endIndex += 1;
       if(endIndex === startIndex + 1 && height > maxHeight){ break; }
     }
-    if(endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
-      endIndex -= 1;
+    const keepSessionHeaderWithNext = !document.body.classList.contains('constraint-off-keepSessionHeaderWithNext');
+    if(keepSessionHeaderWithNext && endIndex < total){
+      while(endIndex > startIndex + 1 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
+        endIndex -= 1;
+      }
     }
     if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
       endIndex = Math.min(startIndex + 2, total);
@@ -1547,6 +1682,16 @@ PAGINATION_JS = r"""
       tbody.appendChild(rows[i]);
     }
     return {chunk, nextIndex: endIndex, height};
+  }
+
+  function updatePageNumbers(){
+    const pages = Array.from(document.querySelectorAll('.wrap .page'));
+    const total = pages.length;
+    pages.forEach((page, idx) => {
+      const num = page.querySelector('.pageNum');
+      if(!num) return;
+      num.textContent = idx === 0 ? '' : `${idx + 1}/${total}`;
+    });
   }
 
   function paginate(){
@@ -1613,6 +1758,8 @@ PAGINATION_JS = r"""
       const actualHeight = node.getBoundingClientRect().height || height;
       used += actualHeight;
     });
+
+    updatePageNumbers();
   }
 
   window.repaginateReport = paginate;
@@ -2045,7 +2192,9 @@ def render_cr(
         <button class="btn secondary editCompact" id="btnQualityCheck" type="button">Qualité du texte</button>
         <button class="btn secondary editCompact" id="btnAnalysis" type="button">Analyse</button>
         <button class="btn secondary editCompact" id="btnRange" type="button" onclick="toggleRangePanel()">Choisir une période</button>
-                <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
+        <button class="btn secondary editCompact" id="btnConstraints" type="button">Contraintes HTML / impression</button>
+        <button class="btn secondary editCompact" id="btnPrintPreview" type="button">Aperçu impression : OFF</button>
+        <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
           <option value="">Lignes masquées…</option>
         </select>
         <button class="btn secondary editCompact" type="button" onclick="restoreSelectedRow()">Réafficher la ligne</button>
@@ -2067,6 +2216,30 @@ def render_cr(
           <button class="btn secondary" type="button" onclick="toggleRangePanel()">Fermer</button>
           <button class="btn secondary" type="button" onclick="clearRange()">Réinitialiser</button>
           <button class="btn" type="button" onclick="applyRange()">Appliquer</button>
+        </div>
+      </div>
+      <div class="constraintsPanel noPrint" id="constraintsPanel" style="display:none">
+        <div class="panelTitle">Détection des contraintes de mise en page</div>
+        <div class="muted small">Désactive une contrainte pour voir immédiatement son effet sur l'affichage HTML et/ou l'impression.</div>
+        <div class="constraintList">
+          <label><input type="checkbox" data-constraint="fixedA4" checked /> Gabarit A4 fixe (largeur 210mm)</label>
+          <label><input type="checkbox" data-constraint="fixedPageHeight" checked /> Hauteur de page forcée (297mm)</label>
+          <label><input type="checkbox" data-constraint="pageBreaks" checked /> Sauts de page forcés entre sections</label>
+          <label><input type="checkbox" data-constraint="bodyOffset" checked /> Décalage du body (panneau d'actions à gauche)</label>
+          <label><input type="checkbox" data-constraint="pagePadding" checked /> Padding interne de la page</label>
+          <label><input type="checkbox" data-constraint="footerReserve" checked /> Réserver l'espace avant footer (anti-chevauchement)</label>
+          <label class="constraintSubControl">Niveau de réserve footer
+            <input type="range" min="-100" max="150" step="5" value="100" id="footerReserveFactor" />
+            <span id="footerReserveFactorValue">100 %</span>
+          </label>
+          <label><input type="checkbox" data-constraint="tableFixed" checked /> Colonnes de tableau en layout fixe</label>
+          <label><input type="checkbox" data-constraint="printHideUi" checked /> Masquer les outils UI à l'impression</label>
+          <label><input type="checkbox" data-constraint="printStickyHeader" checked /> Header sticky en impression</label>
+          <label><input type="checkbox" data-constraint="printCompactRows" checked /> Compactage des lignes pour imprimer</label>
+          <label><input type="checkbox" data-constraint="printAvoidSplitRows" checked /> Empêcher la coupure de lignes/blocs</label>
+          <label><input type="checkbox" data-constraint="keepSessionHeaderWithNext" checked /> Ne pas laisser « En séance du » seul en bas de page</label>
+          <label><input type="checkbox" data-constraint="printAutoOptimize" checked /> Optimisation auto avant impression</label>
+          <label><input type="checkbox" data-constraint="topScale" checked /> Mise à l'échelle du bandeau haut</label>
         </div>
       </div>
     """
@@ -2374,6 +2547,7 @@ def render_cr(
   --a4-padding-x:6mm;
   --kpi-cols:4;
   --top-scale:1;
+  --footer-reserve-factor:1;
 }}
 *{{box-sizing:border-box}}
 html,body{{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
@@ -2393,6 +2567,14 @@ body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
 body.printOptimized .reportHeader{{margin-bottom:4px!important}}
 body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
+body.printPreviewMode .rowToggle,
+body.printPreviewMode .rowImageTools,
+body.printPreviewMode .thumbRemove,
+body.printPreviewMode .btnAddMemo,
+body.printPreviewMode .colGrip{{display:none!important}}
+body.printPreviewMode .editableCell{{background:transparent!important;box-shadow:none!important}}
+body.printPreviewMode .editableCell:focus{{box-shadow:none!important}}
+body.printPreviewMode .noPrintRow{{display:none!important}}
 @media screen{{body{{background:#e5e7eb;}} .page{{box-shadow:0 14px 30px rgba(15,23,42,.16)}}}}
 .topPage{{transform:scale(var(--top-scale));transform-origin:top left}}
 @media print{{.topPage{{margin:0;}}}}
@@ -2505,7 +2687,14 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .actions .btn,.actions .hiddenRowsSelect{{width:100%}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--accent);color:#fff;font-weight:950;cursor:pointer;text-decoration:none}}
 .btn.secondary{{background:#fff;color:var(--text);font-weight:900}}
+#btnPrintPreview.active{{background:#0f172a;color:#fff;border-color:#0f172a}}
 .rangePanel{{position:fixed;top:14px;left:14px;z-index:10001;width:248px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.constraintsPanel{{position:fixed;top:14px;left:276px;z-index:10001;width:420px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(2,6,23,.12);max-height:calc(100vh - 32px);overflow:auto}}
+.panelTitle{{font-weight:900;font-size:13px}}
+.constraintList{{display:grid;grid-template-columns:1fr;gap:6px}}
+.constraintList label{{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.25}}
+.constraintList label.constraintSubControl{{display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:8px;margin-left:22px}}
+.constraintList label.constraintSubControl input[type="range"]{{width:100%}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
@@ -2527,6 +2716,19 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 
 /* PRINT TABLE */
 @page {{ size: A4 portrait; margin: 0; }}
+body.constraint-off-fixedA4 .page{{width:auto!important}}
+body.constraint-off-fixedPageHeight .page{{height:auto!important;min-height:auto!important}}
+body.constraint-off-pageBreaks .page,body.constraint-off-pageBreaks .page:last-child{{break-after:auto!important;page-break-after:auto!important}}
+body.constraint-off-bodyOffset{{padding:14px!important}}
+body.constraint-off-pagePadding .pageContent{{padding:0!important}}
+body.constraint-off-footerReserve .pageContent{{padding-bottom:8mm!important}}
+body.constraint-off-tableFixed .crTable{{table-layout:auto!important}}
+body.constraint-off-printStickyHeader .printHeaderFixed{{position:static!important;top:auto!important}}
+body.constraint-off-printCompactRows.printOptimized .crTable th,body.constraint-off-printCompactRows.printOptimized .crTable td{{padding:7px 8px!important;line-height:1.3!important}}
+body.constraint-off-printCompactRows.printOptimized .thumb{{height:80px!important;max-width:140px!important}}
+body.constraint-off-topScale .topPage{{transform:none!important}}
+@media print{{body.constraint-off-printHideUi .actions,body.constraint-off-printHideUi .rangePanel,body.constraint-off-printHideUi .constraintsPanel{{display:flex!important}}}}
+@media print{{body.constraint-off-printAvoidSplitRows .sessionSubRow,body.constraint-off-printAvoidSplitRows .zoneTitle{{break-inside:auto!important;page-break-inside:auto!important;break-after:auto!important;page-break-after:auto!important}}}}
 
 .zoneBlock{{margin:0}}
 .zoneBlock + .zoneBlock{{margin-top:0}}
@@ -2620,17 +2822,20 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 .reportHeader .accent{{color:#f59e0b;font-weight:900}}
 .presenceTable .presenceList{{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px}}
 .presenceTable .presenceLine{{display:flex;align-items:center;gap:8px;font-weight:700}}
-.docFooter{{position:absolute;left:0;right:0;bottom:0;height:24mm;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3mm 10mm;border-top:1px solid #dbe5f0;background:#fff;overflow:hidden;width:100%;box-sizing:border-box}}
+.docFooter{{position:absolute;left:0;right:0;bottom:0;height:24mm;display:grid;grid-template-columns:120px 1fr 120px;align-items:center;gap:10px;padding:3mm 10mm;border-top:1px solid #dbe5f0;background:#fff;overflow:hidden;width:100%;box-sizing:border-box}}
 .docFooter::before{{content:"";position:absolute;left:0;bottom:0;width:170px;height:42px;background:#123f45;clip-path:polygon(0 100%,100% 100%,0 0)}}
 .docFooter::after{{content:"";position:absolute;right:0;bottom:0;width:260px;height:70px;background:#123f45;clip-path:polygon(100% 0,100% 100%,0 100%)}}
 .footLeft,.footCenter,.footRight{{position:relative;z-index:2}}
-.footCenter{{text-align:center;flex:1}}
+.footLeft{{justify-self:start}}
+.footCenter{{text-align:center;justify-self:center}}
+.footRight{{justify-self:end;width:120px;display:flex;justify-content:flex-end}}
+.pageNum{{font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,.82);line-height:1;letter-spacing:.2px;padding-right:14px;padding-bottom:6px}}
 .tempoLegal{{font-family:"Arial Nova Cond Light","Arial Narrow",Arial,sans-serif;font-size:10px;line-height:1.3;color:#6b7280;font-weight:600}}
 .footImg{{display:block;max-height:32px;width:auto}}
 .footMark{{max-height:48px}}
 .footRythme{{max-height:28px;margin:6px auto 0 auto}}
 .footTempo{{max-height:28px;margin-left:auto}}
-@media print{{body{{padding:0}} .actions,.rangePanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
+@media print{{body{{padding:0}} .actions,.rangePanel,.constraintsPanel{{display:none!important}} .page{{width:210mm;min-height:297mm;margin:0;box-shadow:none;break-after:page;page-break-after:always;}} .page:last-child{{break-after:auto;page-break-after:auto;}}}}
 
 {EDITOR_MEMO_MODAL_CSS}
 {QUALITY_MODAL_CSS}
@@ -2775,7 +2980,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
       <div class="docFooter">
         <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
         <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-        <div class="footRight"></div>
+        <div class="footRight"><span class="pageNum"></span></div>
       </div>
     </section>
 
@@ -2795,7 +3000,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
         <div class="docFooter">
           <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
           <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-          <div class="footRight"></div>
+          <div class="footRight"><span class="pageNum"></span></div>
         </div>
       </section>
     </div>
@@ -2812,7 +3017,7 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
       <div class="docFooter">
         <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
         <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-        <div class="footRight"></div>
+        <div class="footRight"><span class="pageNum"></span></div>
       </div>
     </section>
   </template>
@@ -2825,6 +3030,8 @@ body.printOptimized .thumb{{height:64px!important;max-width:110px!important}}
 <script>{ANALYSIS_MODAL_JS}</script>
 <script>{SYNC_EDITABLE_JS}</script>
 <script>{RANGE_PICKER_JS}</script>
+<script>{PRINT_PREVIEW_TOGGLE_JS}</script>
+<script>{CONSTRAINT_TOGGLES_JS}</script>
 <script>{LAYOUT_CONTROLS_JS}</script>
 <script>{DRAGGABLE_IMAGES_JS}</script>
 <script>{PAGINATION_JS}</script>
