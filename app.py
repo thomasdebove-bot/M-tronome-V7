@@ -1664,8 +1664,10 @@ PAGINATION_JS = r"""
       if(endIndex === startIndex + 1 && height > maxHeight){ break; }
     }
     const keepSessionHeaderWithNext = !document.body.classList.contains('constraint-off-keepSessionHeaderWithNext');
-    if(keepSessionHeaderWithNext && endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
-      endIndex -= 1;
+    if(keepSessionHeaderWithNext && endIndex < total){
+      while(endIndex > startIndex + 1 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
+        endIndex -= 1;
+      }
     }
     if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
       endIndex = Math.min(startIndex + 2, total);
