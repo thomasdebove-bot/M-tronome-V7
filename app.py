@@ -1684,6 +1684,16 @@ PAGINATION_JS = r"""
     return {chunk, nextIndex: endIndex, height};
   }
 
+  function updatePageNumbers(){
+    const pages = Array.from(document.querySelectorAll('.wrap .page'));
+    const total = pages.length;
+    pages.forEach((page, idx) => {
+      const num = page.querySelector('.pageNum');
+      if(!num) return;
+      num.textContent = idx === 0 ? '' : `${idx + 1}/${total}`;
+    });
+  }
+
   function paginate(){
     const container = document.querySelector('.reportPages');
     const firstPage = container?.querySelector('.page--report');
@@ -1748,6 +1758,8 @@ PAGINATION_JS = r"""
       const actualHeight = node.getBoundingClientRect().height || height;
       used += actualHeight;
     });
+
+    updatePageNumbers();
   }
 
   window.repaginateReport = paginate;
@@ -2810,11 +2822,14 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 .reportHeader .accent{{color:#f59e0b;font-weight:900}}
 .presenceTable .presenceList{{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px}}
 .presenceTable .presenceLine{{display:flex;align-items:center;gap:8px;font-weight:700}}
-.docFooter{{position:absolute;left:0;right:0;bottom:0;height:24mm;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3mm 10mm;border-top:1px solid #dbe5f0;background:#fff;overflow:hidden;width:100%;box-sizing:border-box}}
+.docFooter{{position:absolute;left:0;right:0;bottom:0;height:24mm;display:grid;grid-template-columns:120px 1fr 120px;align-items:center;gap:10px;padding:3mm 10mm;border-top:1px solid #dbe5f0;background:#fff;overflow:hidden;width:100%;box-sizing:border-box}}
 .docFooter::before{{content:"";position:absolute;left:0;bottom:0;width:170px;height:42px;background:#123f45;clip-path:polygon(0 100%,100% 100%,0 0)}}
 .docFooter::after{{content:"";position:absolute;right:0;bottom:0;width:260px;height:70px;background:#123f45;clip-path:polygon(100% 0,100% 100%,0 100%)}}
 .footLeft,.footCenter,.footRight{{position:relative;z-index:2}}
-.footCenter{{text-align:center;flex:1}}
+.footLeft{{justify-self:start}}
+.footCenter{{text-align:center;justify-self:center}}
+.footRight{{justify-self:end;width:120px;display:flex;justify-content:flex-end}}
+.pageNum{{font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:20px;font-weight:900;color:#fff;line-height:1;letter-spacing:.3px;padding-right:10px;padding-bottom:2px}}
 .tempoLegal{{font-family:"Arial Nova Cond Light","Arial Narrow",Arial,sans-serif;font-size:10px;line-height:1.3;color:#6b7280;font-weight:600}}
 .footImg{{display:block;max-height:32px;width:auto}}
 .footMark{{max-height:48px}}
@@ -2965,7 +2980,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
       <div class="docFooter">
         <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
         <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-        <div class="footRight"></div>
+        <div class="footRight"><span class="pageNum"></span></div>
       </div>
     </section>
 
@@ -2985,7 +3000,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
         <div class="docFooter">
           <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
           <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-          <div class="footRight"></div>
+          <div class="footRight"><span class="pageNum"></span></div>
         </div>
       </section>
     </div>
@@ -3002,7 +3017,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
       <div class="docFooter">
         <div class="footLeft">{"<img class='footImg footMark' src='" + logo_tmark + "' alt='' />" if logo_tmark else ""}</div>
         <div class="footCenter"><div style="font-family:'Arial Nova Cond Light','Arial Narrow',Arial,sans-serif;font-size:12px;font-weight:700;color:#111">TEMPO</div><div class="tempoLegal">35, rue Beaubourg, 75003 Paris<br/>SAS au capital de 1 000 Euros - RCS Créteil N° 892 046 301 - APE 7112 B</div>{("<img class='footImg footRythme' src='" + logo_rythme + "' alt='' />") if logo_rythme else ""}</div>
-        <div class="footRight"></div>
+        <div class="footRight"><span class="pageNum"></span></div>
       </div>
     </section>
   </template>
