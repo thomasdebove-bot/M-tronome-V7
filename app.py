@@ -1302,6 +1302,7 @@ CONSTRAINT_TOGGLES_JS = r"""
     pageBreaks: true,
     bodyOffset: true,
     pagePadding: true,
+    footerReserve: true,
     tableFixed: true,
     printHideUi: true,
     printStickyHeader: true,
@@ -1593,7 +1594,8 @@ PAGINATION_JS = r"""
     if(!pageContent) return pageRect.height;
     const styles = window.getComputedStyle(pageContent);
     let available = pageRect.height - px(styles.paddingTop) - px(styles.paddingBottom);
-    if(footer){ available -= footer.getBoundingClientRect().height; }
+    const reserveFooter = !document.body.classList.contains('constraint-off-footerReserve');
+    if(reserveFooter && footer){ available -= footer.getBoundingClientRect().height; }
     if(header){ available -= header.getBoundingClientRect().height; }
     if(includePresence && presence){ available -= presence.getBoundingClientRect().height; }
     return available;
@@ -2208,6 +2210,7 @@ def render_cr(
           <label><input type="checkbox" data-constraint="pageBreaks" checked /> Sauts de page forcés entre sections</label>
           <label><input type="checkbox" data-constraint="bodyOffset" checked /> Décalage du body (panneau d'actions à gauche)</label>
           <label><input type="checkbox" data-constraint="pagePadding" checked /> Padding interne de la page</label>
+          <label><input type="checkbox" data-constraint="footerReserve" checked /> Réserver l'espace avant footer (anti-chevauchement)</label>
           <label><input type="checkbox" data-constraint="tableFixed" checked /> Colonnes de tableau en layout fixe</label>
           <label><input type="checkbox" data-constraint="printHideUi" checked /> Masquer les outils UI à l'impression</label>
           <label><input type="checkbox" data-constraint="printStickyHeader" checked /> Header sticky en impression</label>
@@ -2704,6 +2707,7 @@ body.constraint-off-fixedPageHeight .page{{height:auto!important;min-height:auto
 body.constraint-off-pageBreaks .page,body.constraint-off-pageBreaks .page:last-child{{break-after:auto!important;page-break-after:auto!important}}
 body.constraint-off-bodyOffset{{padding:14px!important}}
 body.constraint-off-pagePadding .pageContent{{padding:0!important}}
+body.constraint-off-footerReserve .pageContent{{padding-bottom:8mm!important}}
 body.constraint-off-tableFixed .crTable{{table-layout:auto!important}}
 body.constraint-off-printStickyHeader .printHeaderFixed{{position:static!important;top:auto!important}}
 body.constraint-off-printCompactRows.printOptimized .crTable th,body.constraint-off-printCompactRows.printOptimized .crTable td{{padding:7px 8px!important;line-height:1.3!important}}
