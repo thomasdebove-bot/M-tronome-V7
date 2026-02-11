@@ -1308,6 +1308,7 @@ CONSTRAINT_TOGGLES_JS = r"""
     printStickyHeader: true,
     printCompactRows: true,
     printAvoidSplitRows: true,
+    keepSessionHeaderWithNext: true,
     printAutoOptimize: true,
     topScale: true,
   };
@@ -1334,24 +1335,6 @@ CONSTRAINT_TOGGLES_JS = r"""
     Object.entries(state).forEach(([k, v]) => applyConstraint(k, !!v));
   }
 
-  function updatePrintMargins(){
-    const t = document.getElementById('printMarginTop');
-    const r = document.getElementById('printMarginRight');
-    const b = document.getElementById('printMarginBottom');
-    const l = document.getElementById('printMarginLeft');
-    const target = document.getElementById('dynamicPrintMargins');
-    if(!t || !r || !b || !l || !target) return;
-    const tv = parseFloat(t.value || '0');
-    const rv = parseFloat(r.value || '0');
-    const bv = parseFloat(b.value || '0');
-    const lv = parseFloat(l.value || '0');
-    document.getElementById('printMarginTopValue').textContent = `${tv.toFixed(1)} mm`;
-    document.getElementById('printMarginRightValue').textContent = `${rv.toFixed(1)} mm`;
-    document.getElementById('printMarginBottomValue').textContent = `${bv.toFixed(1)} mm`;
-    document.getElementById('printMarginLeftValue').textContent = `${lv.toFixed(1)} mm`;
-    target.textContent = `@page { size: A4 portrait; margin: ${tv}mm ${rv}mm ${bv}mm ${lv}mm; }`;
-  }
-
   const state = loadState();
   panel.querySelectorAll('[data-constraint]').forEach(input => {
     const name = input.getAttribute('data-constraint');
@@ -1369,17 +1352,13 @@ CONSTRAINT_TOGGLES_JS = r"""
     const input = document.getElementById('footerReserveFactor');
     const value = document.getElementById('footerReserveFactorValue');
     if(!input || !value) return;
-    const pct = Math.max(0, Math.min(150, parseFloat(input.value || '100')));
+    const pct = Math.max(-100, Math.min(150, parseFloat(input.value || '100')));
     const factor = pct / 100;
     value.textContent = `${Math.round(pct)} %`;
     root.style.setProperty('--footer-reserve-factor', factor.toFixed(2));
     try{ localStorage.setItem('tempo.footer.reserve.factor.v1', String(Math.round(pct))); }catch(_){ }
     if(window.repaginateReport){ window.repaginateReport(); }
   }
-
-  panel.querySelectorAll('[data-print-margin]').forEach(input => {
-    input.addEventListener('input', updatePrintMargins);
-  });
 
   const footerReserveInput = document.getElementById('footerReserveFactor');
   if(footerReserveInput){
@@ -1394,7 +1373,6 @@ CONSTRAINT_TOGGLES_JS = r"""
   });
 
   applyAll(state);
-  updatePrintMargins();
   updateFooterReserveFactor();
 })();
 """
@@ -1685,7 +1663,8 @@ PAGINATION_JS = r"""
       endIndex += 1;
       if(endIndex === startIndex + 1 && height > maxHeight){ break; }
     }
-    if(endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
+    const keepSessionHeaderWithNext = !document.body.classList.contains('constraint-off-keepSessionHeaderWithNext');
+    if(keepSessionHeaderWithNext && endIndex - startIndex > 2 && rows[endIndex - 1]?.classList.contains('sessionSubRow')){
       endIndex -= 1;
     }
     if(endIndex === startIndex && rows[startIndex]?.classList.contains('sessionSubRow') && startIndex + 1 < total){
@@ -2236,7 +2215,7 @@ def render_cr(
           <label><input type="checkbox" data-constraint="pagePadding" checked /> Padding interne de la page</label>
           <label><input type="checkbox" data-constraint="footerReserve" checked /> Réserver l'espace avant footer (anti-chevauchement)</label>
           <label class="constraintSubControl">Niveau de réserve footer
-            <input type="range" min="0" max="150" step="5" value="100" id="footerReserveFactor" />
+            <input type="range" min="-100" max="150" step="5" value="100" id="footerReserveFactor" />
             <span id="footerReserveFactorValue">100 %</span>
           </label>
           <label><input type="checkbox" data-constraint="tableFixed" checked /> Colonnes de tableau en layout fixe</label>
@@ -2244,18 +2223,11 @@ def render_cr(
           <label><input type="checkbox" data-constraint="printStickyHeader" checked /> Header sticky en impression</label>
           <label><input type="checkbox" data-constraint="printCompactRows" checked /> Compactage des lignes pour imprimer</label>
           <label><input type="checkbox" data-constraint="printAvoidSplitRows" checked /> Empêcher la coupure de lignes/blocs</label>
+          <label><input type="checkbox" data-constraint="keepSessionHeaderWithNext" checked /> Ne pas laisser « En séance du » seul en bas de page</label>
           <label><input type="checkbox" data-constraint="printAutoOptimize" checked /> Optimisation auto avant impression</label>
           <label><input type="checkbox" data-constraint="topScale" checked /> Mise à l'échelle du bandeau haut</label>
         </div>
-        <div class="panelTitle">Marges d'impression A4 (@page)</div>
-        <div class="printMarginControls">
-          <label>Haut <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginTop" data-print-margin="top" /><span id="printMarginTopValue">0.0 mm</span></label>
-          <label>Droite <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginRight" data-print-margin="right" /><span id="printMarginRightValue">0.0 mm</span></label>
-          <label>Bas <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginBottom" data-print-margin="bottom" /><span id="printMarginBottomValue">0.0 mm</span></label>
-          <label>Gauche <input type="range" min="0" max="25" step="0.5" value="0" id="printMarginLeft" data-print-margin="left" /><span id="printMarginLeftValue">0.0 mm</span></label>
-        </div>
       </div>
-      <style id="dynamicPrintMargins"></style>
     """
 
     # Card renderer for tasks outside the meeting (rappels / à-suivre) — NO BADGES
@@ -2709,9 +2681,6 @@ body.printPreviewMode .noPrintRow{{display:none!important}}
 .constraintList label{{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.25}}
 .constraintList label.constraintSubControl{{display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:8px;margin-left:22px}}
 .constraintList label.constraintSubControl input[type="range"]{{width:100%}}
-.printMarginControls{{display:grid;grid-template-columns:1fr;gap:8px}}
-.printMarginControls label{{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:8px;font-size:12px}}
-.printMarginControls input[type="range"]{{width:100%}}
 .rangeFields{{display:flex;gap:12px;flex-wrap:wrap}}
 .rangeField{{display:flex;flex-direction:column;gap:6px;min-width:180px}}
 .rangeField label{{font-weight:900;font-size:12px}}
